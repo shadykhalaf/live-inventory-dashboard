@@ -20,17 +20,22 @@ export default function LoginForm({ errorMessage }) {
     setLoading(true)
     setError('')
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-    if (error) {
-      setError(error.message)
+      if (error) {
+        setError(error.message)
+        setLoading(false)
+      } else {
+        // Use full page reload to ensure middleware catches the new cookie properly
+        window.location.href = '/'
+      }
+    } catch (err) {
+      setError(err?.message || 'An unexpected error occurred. Check environment variables.')
       setLoading(false)
-    } else {
-      router.push('/')
-      router.refresh()
     }
   }
 
