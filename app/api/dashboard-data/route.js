@@ -1,21 +1,8 @@
-import { createClient } from '@/utils/supabase/server'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(request) {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const allowedEmails = (process.env.ALLOWED_EMAILS || '').split(',').map(e => e.trim().toLowerCase())
-  if (!allowedEmails.includes(user.email.toLowerCase())) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
+export async function GET() {
   try {
     const metabaseUrl = `${process.env.METABASE_SITE_URL}/api/card/${process.env.METABASE_QUESTION_ID}/query/json`
     const res = await fetch(metabaseUrl, {
@@ -32,8 +19,8 @@ export async function GET(request) {
     }
 
     const data = await res.json()
-    
-    // Ensure we handle case where Metabase returns an array of objects
+
+    // Metabase returns a flat array of objects with these column names
     const rows = Array.isArray(data) ? data : (data.data?.rows || [])
 
     const transformedData = {
@@ -42,21 +29,23 @@ export async function GET(request) {
           id: "whole",
           label: "Live Data",
           short: "Live",
-          days: 95, // Default fallback
+          days: rows[0]?.days_in_range || 95,
           status: "ongoing",
           rows: rows.map(r => ({
-            c: r.c || r.Category || r.category || 'Uncategorized',
-            n: r.n || r.Name || r.name || 'Unknown Product',
-            rev: Number(r.rev || r.Revenue || r.revenue || 0),
-            sold: Number(r.sold || r.Sold || r.sold_units || 0),
-            stock: Number(r.stock || r.Stock || r.available_stock || 0),
-            ads: Number(r.ads || r.Ads || 0),
-            adr: Number(r.adr || r.Adr || 0),
-            cov: Number(r.cov || r.Cov || r.coverage || 0),
-            price: r.price ? Number(r.price) : false,
-            img: r.img || r.Image || r.image || false,
+            c:    r.product_category || r.c || r.Category || r.category || 'Uncategorized',
+            n:    r.product_name     || r.n || r.Name     || r.name     || 'Unknown Product',
+            rev:  Number(r.total_sales          ?? r.rev     ?? r.Revenue  ?? r.revenue  ?? 0),
+            sold: Number(r.items_sold           ?? r.sold    ?? r.Sold     ?? 0),
+            stock:Number(r.current_stock_level  ?? r.stock   ?? r.Stock    ?? 0),
+            ads:  Number(r.avg_units_per_day    ?? r.ads     ?? 0),
+            adr:  Number(r.avg_daily_total_sales?? r.adr     ?? 0),
+            cov:  Number(r.stock_coverage_days  ?? r.cov     ?? r.coverage ?? 0),
+            price: (r.item_price ?? r.true_unit_price ?? r.price) != null
+                    ? Number(r.item_price ?? r.true_unit_price ?? r.price)
+                    : false,
+            img:   r.img || r.Image || r.image || false,
             isNew: Boolean(r.isNew || r.is_new || false),
-            soldMidJul: r.soldMidJul != null ? Number(r.soldMidJul) : null,
+            soldMidJul:  r.soldMidJul  != null ? Number(r.soldMidJul)  : null,
             stockMidJul: r.stockMidJul != null ? Number(r.stockMidJul) : null,
           }))
         }
