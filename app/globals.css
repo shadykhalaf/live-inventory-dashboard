@@ -1,4 +1,4 @@
-﻿<style>:root{
+<style>:root{
   --bg:#F5F6FB;
   --card:#FFFFFF;
   --border:#E7E9F3;
@@ -275,4 +275,4 @@ table.sku-table{width:100%;border-collapse:collapse}
 
 .empty{padding:40px 20px;text-align:center;color:var(--sub);font-size:13px}
 footer.note{text-align:center;color:var(--faint);font-size:11.5px;margin-top:26px}
-</style>
+
