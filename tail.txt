@@ -1,0 +1,800 @@
+﻿  if(r.cov < 15) return 'critical';
+  if(r.cov < 30) return 'low';
+  return 'healthy';
+}
+function healthLabel(cls){
+  return {never_arrived:'Never Arrived', sold_out:'Sold Out', stagnant:'No Movement', critical:'Critical', low:'Low', healthy:'Healthy'}[cls] || cls;
+}
+function isNeverArrived(r){ return r.stock===0 && r.sold===0; }
+function isSoldOut(r){ return r.stock===0 && r.sold>0; }
+function isStagnant(r){ return r.stock>0 && r.sold===0; }
+function covHealthFromDays(cov){
+  if(cov < 15) return 'critical';
+  if(cov < 30) return 'low';
+  return 'healthy';
+}
+
+function invVal(r){ return r.stock * (r.price || 0); } // stock on hand valued at current price
+
+function stPct(sold, stock){ return (sold+stock) ? sold/(sold+stock)*100 : 0; }
+
+// Sell-through rise vs the 1 Mayâ€“18 Jul ("mid-July") baseline, tiered by how many percentage points it climbed.
+// riseTier(null) means no baseline exists for that product (launched after mid-July) â€” never flagged, since there's nothing to compare against.
+function riseTier(sold, stock, soldBase, stockBase){
+  if(soldBase === null || soldBase === undefined) return null;
+  const delta = stPct(sold, stock) - stPct(soldBase, stockBase);
+  if(delta >= 15) return 'tier3';
+  if(delta >= 10) return 'tier2';
+  if(delta >= 5) return 'tier1';
+  return null;
+}
+const RISE_TIER_LABEL = {tier1:'+5â€“10pt', tier2:'+10â€“15pt', tier3:'+15pt+'};
+
+function aggregate(rows){
+  const rev = rows.reduce((s,r)=>s+r.rev,0);
+  const sold = rows.reduce((s,r)=>s+r.sold,0);
+  const stock = rows.reduce((s,r)=>s+r.stock,0);
+  const ads = rows.reduce((s,r)=>s+r.ads,0);
+  const st = (sold+stock) ? sold/(sold+stock)*100 : 0;
+  const avgVal = sold ? rev/sold : 0;
+  const invValue = rows.reduce((s,r)=>s+invVal(r),0);
+  const newCount = rows.filter(r=>r.isNew).length;
+  const neverArrived = rows.filter(isNeverArrived).length;
+  const stagnant = rows.filter(isStagnant).length;
+  // "at risk" excludes never-arrived and stagnant SKUs: those aren't a coverage-speed problem
+  const under30 = rows.filter(r=>{
+    const cls = healthClass(r);
+    return cls==='critical' || cls==='low' || cls==='sold_out';
+  }).length;
+  return {rev, sold, stock, ads, st, avgVal, invValue, newCount, under30, neverArrived, stagnant, count: rows.length};
+}
+
+function pctDelta(now, prev){
+  if(prev === 0) return now===0 ? 0 : null; // null = undefined/new
+  return (now-prev)/prev*100;
+}
+
+function deltaChip(now, prev, opts={}){
+  const d = pctDelta(now, prev);
+  if(d === null) return '<span class="delta flat">â€” new</span>';
+  const dir = d > 0.05 ? 'up' : d < -0.05 ? 'down' : 'flat';
+  const arrow = dir==='up' ? 'â–²' : dir==='down' ? 'â–¼' : 'â€¢';
+  const sign = d>0 ? '+' : '';
+  return `<span class="delta ${dir}">${arrow} ${sign}${d.toFixed(1)}%</span>`;
+}
+
+function buildCategoryMap(rows){
+  const map = new Map();
+  for(const r of rows){
+    if(!map.has(r.c)) map.set(r.c, []);
+    map.get(r.c).push(r);
+  }
+  return map;
+}
+
+function applyFilters(rows){
+  return rows.filter(r=>{
+    if(state.search && !r.n.toLowerCase().includes(state.search.toLowerCase())) return false;
+    if(state.category!=='all' && r.c!==state.category) return false;
+    if(state.health!=='all' && healthClass(r)!==state.health) return false;
+    if(r.rev < state.minRev) return false;
+    if(state.notesFilter!=='all'){
+      const note = state.notes.get(r.n) || '';
+      if(state.notesFilter==='none' ? note!=='' : note!==state.notesFilter) return false;
+    }
+    return true;
+  });
+}
+
+function sortRows(rows, override){
+  const sortBy = override ? override.by : state.sortBy;
+  const dir = (override ? override.dir : state.sortDir) === 'asc' ? 1 : -1;
+  const key = {rev:'rev', name:'n', stock:'stock', coverage:'cov', sellthrough:null, invvalue:null, isnew:null}[sortBy];
+  return [...rows].sort((a,b)=>{
+    if(sortBy==='name') return dir*a.n.localeCompare(b.n);
+    if(sortBy==='isnew'){
+      const diff = (b.isNew?1:0)-(a.isNew?1:0); // New items first regardless of asc/desc toggle
+      return diff !== 0 ? diff : (b.rev - a.rev); // within each group, higher revenue first
+    }
+    if(sortBy==='sellthrough'){
+      const sa = a.sold/(a.sold+a.stock||1), sb = b.sold/(b.sold+b.stock||1);
+      return dir*(sa-sb);
+    }
+    if(sortBy==='invvalue') return dir*(invVal(a)-invVal(b));
+    return dir*(a[key]-b[key]);
+  });
+}
+
+function topCategoriesByDailySales(rows, n=5){
+  const map = buildCategoryMap(rows);
+  const list = [...map.entries()].map(([cat, rs])=>({cat, ads: rs.reduce((s,r)=>s+r.ads,0)}));
+  list.sort((a,b)=>b.ads-a.ads);
+  return list.slice(0,n);
+}
+
+function findMatch(name, rows){ return rows.find(r=>r.n===name); }
+
+// ---------------- Rendering ----------------
+
+function render(){
+  const period = getPeriod(state.periodId);
+  const compareOn = state.compare && state.compareId;
+  const cmpPeriod = compareOn ? getPeriod(state.compareId) : null;
+
+  renderPeriodPills();
+  renderCompareControls();
+  renderNewCollectionToggle();
+  renderTagNote(period);
+  renderNoteBand(period, cmpPeriod);
+  renderCards(period, cmpPeriod);
+  renderFilters(period);
+  const filtered = sortRows(applyFilters(visRows(period)));
+  renderPivot(period, cmpPeriod, filtered);
+  renderRemovedBar();
+}
+
+function renderNewCollectionToggle(){
+  const toggle = document.getElementById('newCollectionToggle');
+  toggle.classList.toggle('on', state.newOnly);
+}
+
+function renderTagNote(period){
+  const band = document.getElementById('tagNote');
+  if(!state.newOnly){ band.classList.remove('show'); return; }
+  const totalNew = period.rows.filter(r=>r.isNew).length;
+  band.classList.add('show');
+  band.innerHTML = `<span>ðŸ·ï¸</span><span><b>New Collection Only</b> is on â€” every card, ranking, and table row below is scoped to the ${fmtNum(totalNew)} SKUs tagged as part of the SS26 new collection (matched against your earlier per-period uploads). Toggle it off to see the full catalog again.</span>`;
+}
+
+function renderPeriodPills(){
+  const el = document.getElementById('periodPills');
+  el.innerHTML = PERIODS.map(p=>{
+    const isCombined = p.status==='combined';
+    return `
+    <button class="pill-btn ${p.id===state.periodId?'active':''} ${isCombined?'combined':''}" data-period="${p.id}">
+      <span class="dot"></span>${isCombined?'Î£ Whole Range Â· ':''}${p.label}${p.status==='ongoing' ? ' Â· ongoing' : ''}
+    </button>`;
+  }).join('');
+  el.querySelectorAll('[data-period]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      state.periodId = btn.dataset.period;
+      const op = otherPeriod(state.periodId);
+      state.compare = op ? state.compare : false;
+      state.compareId = op ? op.id : null;
+      render();
+    });
+  });
+}
+
+function renderCompareControls(){
+  const canCompare = !!otherPeriod(state.periodId);
+  const toggle = document.getElementById('compareToggle');
+  toggle.classList.toggle('on', state.compare && canCompare);
+  toggle.classList.toggle('disabled', !canCompare);
+  const vsWrap = document.getElementById('compareVsWrap');
+  const unavailable = document.getElementById('compareUnavailable');
+  if(!canCompare){
+    state.compare = false;
+    vsWrap.style.display = 'none';
+    unavailable.style.display = 'flex';
+    return;
+  }
+  unavailable.style.display = 'none';
+  vsWrap.style.display = state.compare ? 'flex' : 'none';
+  const select = document.getElementById('compareSelect');
+  const options = RAW_PERIODS.filter(p=>p.id!==state.periodId);
+  select.innerHTML = options.map(p=>`<option value="${p.id}" ${p.id===state.compareId?'selected':''}>${p.label}</option>`).join('');
+}
+
+function renderNoteBand(period, cmpPeriod){
+  const band = document.getElementById('noteBand');
+  if(!cmpPeriod){ band.classList.remove('show'); return; }
+  band.classList.add('show');
+  band.innerHTML = `<span>â„¹ï¸</span><span><b>Fair comparison:</b> "${period.label}" spans ${fmt1(period.days)} days and "${cmpPeriod.label}" spans ${fmt1(cmpPeriod.days)} days${cmpPeriod.status==='ongoing'?' (still running)':''}. Totals below are shown as-is, but every trend arrow compares <b>daily pace</b> (revenue/day, units/day) so a shorter period is never penalized for having fewer days.</span>`;
+}
+
+function renderCards(period, cmpPeriod){
+  const rows = visRows(period);
+  const agg = aggregate(rows);
+  const cAgg = cmpPeriod ? aggregate(visRows(cmpPeriod)) : null;
+
+  const revPerDay = agg.rev/period.days;
+  const cRevPerDay = cAgg ? cAgg.rev/cmpPeriod.days : null;
+  const liveSkus = agg.count - agg.neverArrived;
+  const cLiveSkus = cAgg ? cAgg.count - cAgg.neverArrived : null;
+
+  const cards = [
+    {
+      label:'Accumulated Revenue', val:fmtMoney(agg.rev),
+      cap:`Total over ${fmt1(period.days)} days`,
+      delta: cAgg ? deltaChip(revPerDay, cRevPerDay) : '',
+      deltaCap: cAgg ? 'vs daily pace, previous period' : ''
+    },
+    {
+      label:'Sell-Through Rate', val: agg.st.toFixed(2)+'%',
+      cap:'Sold Ã· (sold + on hand)',
+      bar: Math.min(agg.st,100),
+      delta: cAgg ? deltaChip(agg.st, cAgg.st) : '',
+      deltaCap: cAgg ? 'vs previous period' : ''
+    },
+    {
+      label:'Total Stock on Hand', val: fmtNum(agg.stock),
+      cap:'Physical units available',
+      delta: cAgg ? deltaChip(agg.stock, cAgg.stock) : '',
+      deltaCap: cAgg ? 'vs previous period total' : ''
+    },
+    {
+      label:'Total Items Sold', val: fmtNum(agg.sold),
+      cap:`Units sold over ${fmt1(period.days)} days`,
+      delta: cAgg ? deltaChip(agg.sold, cAgg.sold) : '',
+      deltaCap: cAgg ? 'vs previous period total' : ''
+    },
+    {
+      label:'Total Live SKUs', val: fmtNum(liveSkus),
+      cap:`of ${fmtNum(agg.count)} tracked SKUs`,
+      delta: cAgg ? deltaChip(liveSkus, cLiveSkus) : '',
+      deltaCap: cAgg ? 'vs previous period' : ''
+    },
+    {
+      label:'Avg Sales per Day', val: fmt1(agg.ads),
+      cap:'Units / day (whole collection)',
+      delta: cAgg ? deltaChip(agg.ads, cAgg.ads) : '',
+      deltaCap: cAgg ? 'vs previous period pace' : ''
+    },
+    {
+      label:'Avg Sale Value', val: fmtMoney(agg.avgVal),
+      cap:'Revenue-weighted average',
+      delta: cAgg ? deltaChip(agg.avgVal, cAgg.avgVal) : '',
+      deltaCap: cAgg ? 'vs previous period' : ''
+    },
+    {
+      label:'Total Inventory Value', val: fmtMoney(agg.invValue),
+      cap:'Stock on hand Ã— current price',
+      delta: cAgg ? deltaChip(agg.invValue, cAgg.invValue) : '',
+      deltaCap: cAgg ? 'vs previous period' : ''
+    },
+  ];
+
+  const topCats = topCategoriesByDailySales(rows, 5);
+  const cmpCatMap = cmpPeriod ? buildCategoryMap(visRows(cmpPeriod)) : null;
+
+  const cardsEl = document.getElementById('cardsRow');
+  cardsEl.innerHTML = cards.map(c=>`
+    <div class="card">
+      <div class="card-top">
+        <div class="card-label">${c.label}</div>
+        <div class="card-ico">${dotIcon()}</div>
+      </div>
+      <div>
+        <div class="card-val">${c.val}</div>
+        <div class="card-cap">${c.cap}</div>
+        ${c.bar!==undefined?`<div class="card-bar"><div style="width:${c.bar}%"></div></div>`:''}
+        ${c.delta?`${c.delta}<div class="delta-cap">${c.deltaCap}</div>`:''}
+      </div>
+    </div>
+  `).join('') + `
+    <div class="card risk">
+      <div class="card-top">
+        <div class="card-label">SKUs &lt; 30 Days Cover</div>
+        <div class="card-ico">âš ï¸</div>
+      </div>
+      <div>
+        <div class="card-val">${agg.under30}</div>
+        <div class="card-cap">Selling fast, restock now</div>
+        ${cAgg?`${deltaChip(agg.under30, cAgg.under30)}<div class="delta-cap">vs previous period count</div>`:''}
+      </div>
+    </div>
+    <div class="card rank">
+      <div class="card-top">
+        <div class="card-label">Top 5 Types Â· Avg Sales/Day</div>
+        <div class="card-ico">ðŸ†</div>
+      </div>
+      <div class="rank-list">
+        ${topCats.map((t,i)=>{
+          let deltaHtml = '';
+          if(cmpCatMap){
+            const cRows = cmpCatMap.get(t.cat);
+            if(cRows){
+              const cAds = cRows.reduce((s,r)=>s+r.ads,0);
+              deltaHtml = deltaChip(t.ads, cAds);
+            } else {
+              deltaHtml = '<span class="delta flat">â€” new</span>';
+            }
+          }
+          return `
+          <div class="rank-row">
+            <span class="rank-num">${i+1}</span>
+            <span class="rank-name">${escHtml(t.cat)}</span>
+            <span class="rank-val">${fmt1(t.ads)}/day</span>
+            ${deltaHtml}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function dotIcon(){
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5B4FE9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>`;
+}
+
+function renderFilters(period){
+  const catSel = document.getElementById('categorySelect');
+  const cats = [...new Set(visRows(period).map(r=>r.c))].sort();
+  catSel.innerHTML = `<option value="all">All Categories (${cats.length})</option>` + cats.map(c=>`<option value="${escAttr(c)}" ${state.category===c?'selected':''}>${escHtml(c)}</option>`).join('');
+  catSel.value = state.category;
+
+  document.getElementById('searchInput').value = state.search;
+  document.getElementById('healthSelect').value = state.health;
+  document.getElementById('notesSelect').value = state.notesFilter;
+  document.getElementById('minRevRange').value = state.minRev;
+  document.getElementById('minRevLabel').textContent = fmtMoney(state.minRev);
+
+  document.querySelectorAll('.sort-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.sort===state.sortBy);
+    b.querySelector('.arrow').textContent = b.dataset.sort===state.sortBy ? (state.sortDir==='asc'?'â†‘':'â†“') : '';
+  });
+}
+
+function renderPivot(period, cmpPeriod, filteredRows){
+  const map = buildCategoryMap(filteredRows);
+  let cats = [...map.keys()];
+
+  cats.sort((ca,cb)=>{
+    const aggA = aggregate(map.get(ca)), aggB = aggregate(map.get(cb));
+    const dir = state.sortDir==='asc' ? 1 : -1;
+    if(state.sortBy==='name') return dir*ca.localeCompare(cb);
+    if(state.sortBy==='rev') return dir*(aggA.rev-aggB.rev);
+    if(state.sortBy==='stock') return dir*(aggA.stock-aggB.stock);
+    if(state.sortBy==='coverage'){
+      const covA = aggA.stock/(aggA.ads||1), covB = aggB.stock/(aggB.ads||1);
+      return dir*(covA-covB);
+    }
+    if(state.sortBy==='sellthrough') return dir*(aggA.st-aggB.st);
+    if(state.sortBy==='invvalue') return dir*(aggA.invValue-aggB.invValue);
+    if(state.sortBy==='isnew') return aggB.newCount - aggA.newCount; // categories with more New items first, regardless of asc/desc toggle
+    return dir*(aggA.rev-aggB.rev);
+  });
+
+  const countEl = document.getElementById('pivotCount');
+  countEl.textContent = `${filteredRows.length} SKUs across ${cats.length} categories`;
+  lastFilteredRows = filteredRows; // exported by the Export Filtered button â€” always mirrors exactly what's on screen
+  document.getElementById('exportBtn').textContent = `â¬‡ Export Filtered (${filteredRows.length})`;
+
+  const wrap = document.getElementById('pivotList');
+  if(cats.length===0){
+    wrap.innerHTML = `<div class="empty">No SKUs match the current filters. Try widening your search or lowering the minimum revenue.</div>`;
+    return;
+  }
+
+  wrap.innerHTML = cats.map(cat=>{
+    const groupOverride = state.groupSort.get(cat);
+    const rows = sortRows(map.get(cat), groupOverride);
+    const agg = aggregate(rows);
+    const activeRows = rows.filter(r=>!isNeverArrived(r));
+    const soldOutCount = rows.filter(isSoldOut).length;
+    let cls;
+    if(activeRows.length===0) cls = 'never_arrived';
+    else if(soldOutCount>0) cls = 'sold_out';
+    else { const a = aggregate(activeRows); cls = covHealthFromDays(a.stock/(a.ads||1)); }
+    const isOpen = state.openCats.has(cat);
+
+    const cmpRows = cmpPeriod ? visRows(cmpPeriod).filter(r=>r.c===cat) : null;
+    const cAgg = cmpRows ? aggregate(cmpRows) : null;
+    const revPerDay = agg.rev/period.days, cRevPerDay = cAgg ? cAgg.rev/cmpPeriod.days : null;
+
+    const baselineRows = rows.filter(r=>r.soldMidJul !== null && r.soldMidJul !== undefined);
+    let catRiseTier = null;
+    if(baselineRows.length){
+      const soldBase = baselineRows.reduce((s,r)=>s+r.soldMidJul,0);
+      const stockBase = baselineRows.reduce((s,r)=>s+r.stockMidJul,0);
+      const soldNow = baselineRows.reduce((s,r)=>s+r.sold,0);
+      const stockNow = baselineRows.reduce((s,r)=>s+r.stock,0);
+      catRiseTier = riseTier(soldNow, stockNow, soldBase, stockBase);
+    }
+
+    return `
+    <div class="group ${isOpen?'open':''}" data-cat="${escAttr(cat)}">
+      <div class="group-head" data-toggle="${escAttr(cat)}">
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
+        <div class="group-title">
+          <div class="name">${escHtml(cat)} <span class="chip">${rows.length} SKUs</span></div>
+          <div class="sub">Total grouped assets summary</div>
+        </div>
+        <div class="group-stats">
+          <div class="gstat"><div class="k">Accumulated Rev</div><div class="v">${fmtMoney(agg.rev)} ${cAgg?deltaChip(revPerDay,cRevPerDay):''}</div></div>
+          <div class="gstat"><div class="k">Group Stock</div><div class="v">${fmtNum(agg.stock)}</div></div>
+          <div class="gstat"><div class="k">Avg Sales/Day</div><div class="v">${fmt1(agg.ads)} ${cAgg?deltaChip(agg.ads,cAgg.ads):''}</div></div>
+          <div class="gstat"><div class="k">Sell-Through</div><div class="v">${agg.st.toFixed(2)}%</div></div>
+          <div class="gstat"><div class="k">Inventory Value</div><div class="v">${fmtMoney(agg.invValue)}</div></div>
+        </div>
+        ${agg.neverArrived>0 && cls!=='never_arrived' ? `<span class="chip warn">ðŸ“¦ ${agg.neverArrived} never arrived</span>` : ''}
+        ${agg.stagnant>0 && cls!=='stagnant' ? `<span class="chip watch">ðŸŒ ${agg.stagnant} no sales</span>` : ''}
+        ${!state.newOnly && rows.some(r=>r.isNew) ? `<span class="chip newcol">ðŸ·ï¸ ${rows.filter(r=>r.isNew).length} new</span>` : ''}
+        ${catRiseTier ? `<span class="rise-badge ${catRiseTier}" title="Category sell-through vs mid-July: ${RISE_TIER_LABEL[catRiseTier]}">â¬† ${RISE_TIER_LABEL[catRiseTier]}</span>` : ''}
+        <span class="tag ${cls}">${healthLabel(cls)}</span>
+        <select class="group-sort-select" data-groupsort="${escAttr(cat)}" title="Sort SKUs within this type only">
+          <option value="">Sort: default</option>
+          <option value="isnew" ${groupOverride?.by==='isnew'?'selected':''}>New First</option>
+          <option value="rev" ${groupOverride?.by==='rev'?'selected':''}>Top by Revenue</option>
+          <option value="stock" ${groupOverride?.by==='stock'?'selected':''}>Top by Stock</option>
+          <option value="invvalue" ${groupOverride?.by==='invvalue'?'selected':''}>Top by Inv. Value</option>
+          <option value="sellthrough" ${groupOverride?.by==='sellthrough'?'selected':''}>Top by Sell-Through</option>
+          <option value="coverage" ${groupOverride?.by==='coverage'?'selected':''}>Lowest Coverage</option>
+          <option value="name" ${groupOverride?.by==='name'?'selected':''}>Name Aâ€“Z</option>
+        </select>
+        <button class="del-cat-btn" type="button" data-delcat="${escAttr(cat)}" title="Remove this entire type from the dashboard">${trashIcon()}</button>
+      </div>
+      <div class="group-body">
+        <table class="sku-table">
+          <thead><tr>
+            <th>SKU Product Name</th><th>Collected Revenue</th><th>Items Sold</th><th>Available Stock</th>
+            <th>Current Price</th><th>Inventory Value</th><th>Avg Daily Sales</th><th>Stock Coverage</th><th>Sell-Through</th><th>Notes</th>${cmpPeriod?'<th>vs Prev (daily)</th>':''}<th></th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r=>{
+              const rcls = healthClass(r);
+              const st = r.sold/(r.sold+r.stock||1)*100;
+              const covText = rcls==='never_arrived' ? 'Never arrived' : rcls==='sold_out' ? 'Sold out' : rcls==='stagnant' ? 'No sales yet' : `${fmt1(r.cov)} days`;
+              let deltaCol = '';
+              if(cmpPeriod){
+                const match = findMatch(r.n, visRows(cmpPeriod));
+                if(match){
+                  const rd = r.rev/period.days, md = match.rev/cmpPeriod.days;
+                  deltaCol = `<td>${deltaChip(rd, md)}</td>`;
+                } else {
+                  deltaCol = `<td><span class="new-badge">New</span></td>`;
+                }
+              }
+              const currentNote = state.notes.get(r.n) || '';
+              const rTier = riseTier(r.sold, r.stock, r.soldMidJul, r.stockMidJul);
+              return `
+              <tr>
+                <td class="sku-name hoverable" data-name="${escAttr(r.n)}" data-img="${escAttr(r.img)}">
+                  <div class="sku-name-inner">${thumbHtml(r.img,28)}<span>${escHtml(r.n)}</span>${r.isNew?'<span class="new-collection-badge">NEW</span>':''}${currentNote?`<span class="note-badge note-${currentNote}">${NOTE_ICONS[currentNote]} ${NOTE_LABELS[currentNote]}</span>`:''}${rTier?`<span class="rise-badge ${rTier}" title="Sell-through vs mid-July: ${RISE_TIER_LABEL[rTier]}">â¬† ${RISE_TIER_LABEL[rTier]}</span>`:''}</div>
+                </td>
+                <td>${fmtMoney(r.rev)}</td>
+                <td>${fmtNum(r.sold)}</td>
+                <td>${fmtNum(r.stock)}</td>
+                <td>${r.price ? fmtMoney(r.price) : 'â€”'}</td>
+                <td>${r.price ? fmtMoney(invVal(r)) : 'â€”'}</td>
+                <td>${fmt1(r.ads)}</td>
+                <td><span class="cov-pill ${rcls}">${covText}</span></td>
+                <td class="st-cell"><span class="st-num">${st.toFixed(1)}%</span><div class="st-bar"><div style="width:${Math.min(st,100)}%"></div></div></td>
+                <td>
+                  <select class="notes-select note-${currentNote||'none'}" data-note-sku="${escAttr(r.n)}">
+                    <option value="" ${currentNote===''?'selected':''}>â€”</option>
+                    <option value="watch" ${currentNote==='watch'?'selected':''}>ðŸ‘ Watch</option>
+                    <option value="price_down" ${currentNote==='price_down'?'selected':''}>â†“ Price Down</option>
+                    <option value="price_up" ${currentNote==='price_up'?'selected':''}>â†‘ Price Up</option>
+                    <option value="special" ${currentNote==='special'?'selected':''}>â­ Special Price</option>
+                  </select>
+                </td>
+                ${deltaCol}
+                <td><button class="del-row-btn" type="button" data-delsku="${escAttr(r.n)}" title="Remove this SKU from the dashboard">${trashIcon()}</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-toggle]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const cat = el.dataset.toggle;
+      if(state.openCats.has(cat)) state.openCats.delete(cat); else state.openCats.add(cat);
+      el.closest('.group').classList.toggle('open');
+    });
+  });
+
+  wrap.querySelectorAll('[data-delcat]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation(); // don't also trigger the group-head expand/collapse
+      const cat = btn.dataset.delcat;
+      if(confirm(`Remove the entire "${cat}" type from the dashboard? You can bring it back from the "hidden" bar above the filters.`)){
+        state.deletedCats.add(cat);
+        render();
+      }
+    });
+  });
+
+  const GROUP_SORT_DIR = { isnew:'desc', rev:'desc', stock:'desc', invvalue:'desc', sellthrough:'desc', coverage:'asc', name:'asc' };
+  wrap.querySelectorAll('[data-groupsort]').forEach(sel=>{
+    sel.addEventListener('click', e=>e.stopPropagation());
+    sel.addEventListener('change', e=>{
+      e.stopPropagation();
+      const cat = sel.dataset.groupsort;
+      const by = sel.value;
+      if(by) state.groupSort.set(cat, {by, dir: GROUP_SORT_DIR[by]});
+      else state.groupSort.delete(cat);
+      state.openCats.add(cat); // opening the group so the new order is immediately visible
+      render();
+    });
+  });
+
+  wrap.querySelectorAll('[data-delsku]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      const name = btn.dataset.delsku;
+      state.deletedSkus.add(name);
+      render();
+    });
+  });
+
+  wrap.querySelectorAll('[data-note-sku]').forEach(sel=>{
+    sel.addEventListener('click', e=>e.stopPropagation());
+    sel.addEventListener('change', e=>{
+      e.stopPropagation();
+      const name = sel.dataset.noteSku;
+      const val = sel.value;
+      if(val) state.notes.set(name, val); else state.notes.delete(name);
+      render();
+    });
+  });
+
+  attachHoverImages();
+}
+
+function trashIcon(){
+  return `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
+}
+
+function renderRemovedBar(){
+  const el = document.getElementById('removedBar');
+  const skuCount = state.deletedSkus.size, catCount = state.deletedCats.size;
+  if(skuCount===0 && catCount===0){ el.innerHTML=''; el.style.display='none'; return; }
+  el.style.display = 'flex';
+  const parts = [];
+  if(skuCount) parts.push(`${skuCount} SKU${skuCount>1?'s':''}`);
+  if(catCount) parts.push(`${catCount} type${catCount>1?'s':''}`);
+  el.innerHTML = `<span>${trashIcon()} ${parts.join(' and ')} hidden from this dashboard</span><a href="#" id="restoreAllLink">Restore all</a>`;
+  document.getElementById('restoreAllLink').addEventListener('click', e=>{
+    e.preventDefault();
+    state.deletedSkus.clear();
+    state.deletedCats.clear();
+    render();
+  });
+}
+
+function escHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escAttr(s){ return escHtml(s); }
+
+// ---------------- Image hover tooltip ----------------
+function attachHoverImages(){
+  const tip = document.getElementById('imgTip');
+  document.querySelectorAll('.hoverable').forEach(el=>{
+    el.addEventListener('mouseenter', e=>{
+      const img = el.dataset.img;
+      const name = el.dataset.name;
+      const src = img ? escAttr(img) : PLACEHOLDER_IMG;
+      tip.innerHTML = `<img src="${src}" onerror="this.onerror=null;this.src='${PLACEHOLDER_IMG}'" alt=""><div class="cap">${escHtml(name)}</div>`;
+      tip.style.display = 'block';
+      positionTip(e);
+    });
+    el.addEventListener('mousemove', positionTip);
+    el.addEventListener('mouseleave', ()=>{ tip.style.display='none'; });
+  });
+}
+function positionTip(e){
+  const tip = document.getElementById('imgTip');
+  const pad = 16;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if(x + 184 > window.innerWidth) x = e.clientX - 184 - pad;
+  if(y + 220 > window.innerHeight) y = e.clientY - 220;
+  tip.style.left = x+'px';
+  tip.style.top = y+'px';
+}
+
+// ---------------- Event wiring ----------------
+document.getElementById('newCollectionToggle').addEventListener('click', ()=>{
+  state.newOnly = !state.newOnly;
+  render();
+});
+document.getElementById('compareToggle').addEventListener('click', ()=>{
+  if(!otherPeriod(state.periodId)) return; // nothing to compare the combined range against yet
+  state.compare = !state.compare;
+  render();
+});
+document.getElementById('compareSelect').addEventListener('change', e=>{
+  state.compareId = e.target.value;
+  render();
+});
+document.getElementById('searchInput').addEventListener('input', e=>{
+  state.search = e.target.value; render();
+});
+document.getElementById('categorySelect').addEventListener('change', e=>{
+  state.category = e.target.value; render();
+});
+document.getElementById('healthSelect').addEventListener('change', e=>{
+  state.health = e.target.value; render();
+});
+document.getElementById('notesSelect').addEventListener('change', e=>{
+  state.notesFilter = e.target.value; render();
+});
+document.getElementById('minRevRange').addEventListener('input', e=>{
+  state.minRev = Number(e.target.value); render();
+});
+document.querySelectorAll('.sort-btn').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    if(state.sortBy===b.dataset.sort){ state.sortDir = state.sortDir==='asc'?'desc':'asc'; }
+    else { state.sortBy = b.dataset.sort; state.sortDir = 'desc'; }
+    render();
+  });
+});
+document.getElementById('expandAll').addEventListener('click', e=>{
+  e.preventDefault();
+  const period = getPeriod(state.periodId);
+  const rows = applyFilters(visRows(period));
+  buildCategoryMap(rows).forEach((_,cat)=>state.openCats.add(cat));
+  render();
+});
+document.getElementById('collapseAll').addEventListener('click', e=>{
+  e.preventDefault();
+  state.openCats.clear();
+  render();
+});
+
+function csvEscape(val){
+  const s = String(val ?? '');
+  if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+  return s;
+}
+
+function exportFilteredCsv(){
+  const period = getPeriod(state.periodId);
+  const rows = lastFilteredRows;
+  const headers = [
+    'Product Name','Category','Collected Revenue','Items Sold','Available Stock',
+    'Current Price','Inventory Value','Avg Daily Sales','Stock Coverage (days)','Sell-Through %',
+    'Stock Health','New Collection','Note'
+  ];
+  const lines = [headers.map(csvEscape).join(',')];
+  for(const r of rows){
+    const cls = healthClass(r);
+    const st = r.sold/(r.sold+r.stock||1)*100;
+    const note = state.notes.get(r.n) || '';
+    lines.push([
+      r.n, r.c, r.rev.toFixed(2), r.sold, r.stock,
+      r.price || '', r.price ? invVal(r).toFixed(2) : '', r.ads, r.cov, st.toFixed(1),
+      healthLabel(cls), r.isNew ? 'Yes' : 'No', note ? NOTE_LABELS[note] : ''
+    ].map(csvEscape).join(','));
+  }
+  const csv = lines.join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dateStr = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `dashboard-export_${period.id}_${dateStr}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('exportBtn').addEventListener('click', exportFilteredCsv);
+
+// ---------------- Excel export with embedded photos ----------------
+
+async function processWithConcurrency(items, limit, worker){
+  let idx = 0;
+  async function runOne(){
+    while(idx < items.length){
+      const i = idx++;
+      await worker(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(limit, items.length)}, runOne));
+}
+
+async function fetchImageAsResizedBase64(url, maxSize){
+  const resp = await fetch(url, {mode:'cors'});
+  if(!resp.ok) throw new Error('http '+resp.status);
+  const blob = await resp.blob();
+  const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+  return { base64: canvas.toDataURL('image/jpeg', 0.85), width: w, height: h };
+}
+
+async function exportFilteredXlsx(){
+  const period = getPeriod(state.periodId);
+  const rows = lastFilteredRows;
+  if(rows.length === 0){ alert('No SKUs match the current filters â€” nothing to export.'); return; }
+  if(rows.length > 400){
+    const ok = confirm(`This will fetch and embed photos for ${rows.length} products. That can take a couple of minutes and produce a large file. Continue? (Tip: narrow your filters first for a faster export.)`);
+    if(!ok) return;
+  }
+
+  const xlsxBtn = document.getElementById('exportXlsxBtn');
+  const csvBtn = document.getElementById('exportBtn');
+  const status = document.getElementById('exportStatus');
+  xlsxBtn.disabled = true; csvBtn.disabled = true;
+  xlsxBtn.textContent = 'â³ Preparingâ€¦';
+
+  try{
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Inventory Export');
+    ws.columns = [
+      {header:'Photo', key:'photo', width: PHOTO_COL_WIDTH},
+      {header:'Product Name', key:'name', width:34},
+      {header:'Category', key:'cat', width:22},
+      {header:'Collected Revenue', key:'rev', width:16},
+      {header:'Items Sold', key:'sold', width:11},
+      {header:'Available Stock', key:'stock', width:13},
+      {header:'Current Price', key:'price', width:12},
+      {header:'Inventory Value', key:'invval', width:14},
+      {header:'Avg Daily Sales', key:'ads', width:13},
+      {header:'Stock Coverage (days)', key:'cov', width:17},
+      {header:'Sell-Through %', key:'st', width:13},
+      {header:'Stock Health', key:'health', width:13},
+      {header:'New Collection', key:'isnew', width:13},
+      {header:'Note', key:'note', width:14},
+    ];
+    ws.getRow(1).font = {bold:true};
+    ws.getRow(1).alignment = {vertical:'middle'};
+
+    rows.forEach((r, i)=>{
+      const cls = healthClass(r);
+      const st = r.sold/(r.sold+r.stock||1)*100;
+      const note = state.notes.get(r.n) || '';
+      ws.addRow({
+        photo:'', name:r.n, cat:r.c, rev:r.rev, sold:r.sold, stock:r.stock,
+        price: r.price || '', invval: r.price ? invVal(r) : '', ads:r.ads, cov:r.cov,
+        st: Number(st.toFixed(1)), health: healthLabel(cls), isnew: r.isNew ? 'Yes' : 'No',
+        note: note ? NOTE_LABELS[note] : ''
+      });
+      ws.getRow(i+2).height = PHOTO_ROW_HEIGHT;
+    });
+
+    let done = 0, failed = 0;
+    await processWithConcurrency(rows, 6, async (r, i)=>{
+      done++;
+      status.textContent = `Fetching photosâ€¦ ${done}/${rows.length}`;
+      if(!r.img) return;
+      try{
+        const {base64} = await fetchImageAsResizedBase64(r.img, PHOTO_PX);
+        const ext = base64.startsWith('data:image/png') ? 'png' : 'jpeg';
+        const imgId = wb.addImage({base64, extension: ext});
+        ws.addImage(imgId, { tl:{col:0.15, row:(i+1)+0.1}, ext:{width:PHOTO_PX, height:PHOTO_PX} });
+      } catch(e){
+        failed++;
+      }
+    });
+
+    status.textContent = 'Generating fileâ€¦';
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `dashboard-export-photos_${period.id}_${dateStr}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    status.textContent = failed>0
+      ? `Done â€” ${failed} of ${rows.length} photo(s) couldn't be loaded (broken link or blocked by the browser) and were left blank.`
+      : `Done â€” all ${rows.length} photos embedded.`;
+  } catch(e){
+    status.textContent = 'Export failed: ' + e.message;
+  } finally {
+    xlsxBtn.disabled = false; csvBtn.disabled = false;
+    xlsxBtn.textContent = 'ðŸ–¼ï¸ Export Excel + Photos';
+    setTimeout(()=>{ status.textContent=''; }, 8000);
+  }
+}
+
+document.getElementById('exportXlsxBtn').addEventListener('click', exportFilteredXlsx);
+
+render();
+</script>
+</body>
+</html>
