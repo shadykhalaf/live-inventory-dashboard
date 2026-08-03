@@ -2,7 +2,6 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import useSWR from 'swr'
 import ExcelJS from 'exceljs'
-import { createBrowserClient } from '@supabase/ssr'
 import { useRouter } from 'next/navigation'
 
 const fetcher = url => fetch(url).then(res => res.json())
@@ -16,15 +15,6 @@ function escHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'
 
 export default function DashboardClient() {
   const router = useRouter()
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  )
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    window.location.href = '/login'
-  }
 
   const { data: serverData, error, isLoading } = useSWR('/api/dashboard-data', fetcher, {
     refreshInterval: 5 * 60 * 1000 // 5 minutes
@@ -372,7 +362,7 @@ export default function DashboardClient() {
           </div>
         </div>
         <div className="hdr-right">
-          <button className="export-btn" style={{ background: 'var(--red)', border: 'none' }} onClick={handleLogout}>Sign Out</button>
+
           <div className="pill-group" id="periodPills">
             {RAW_PERIODS.map(p => (
               <button key={p.id} className={`pill-btn ${p.id === periodId ? 'active' : ''} ${p.status === 'combined' ? 'combined' : ''}`} onClick={() => setPeriodId(p.id)}>
