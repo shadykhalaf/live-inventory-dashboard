@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 
 export async function login(formData) {
   const supabase = createClient()
@@ -23,5 +24,6 @@ export async function login(formData) {
     redirect('/login?error=unauthorized')
   }
 
+  revalidatePath('/', 'layout')
   redirect('/')
 }

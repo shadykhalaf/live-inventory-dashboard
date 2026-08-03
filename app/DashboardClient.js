@@ -23,7 +23,7 @@ export default function DashboardClient() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    router.push('/login')
+    window.location.href = '/login'
   }
 
   const { data: serverData, error, isLoading } = useSWR('/api/dashboard-data', fetcher, {
