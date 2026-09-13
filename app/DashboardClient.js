@@ -16,8 +16,23 @@ function escHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'
 export default function DashboardClient() {
   const router = useRouter()
 
-  const { data: serverData, error, isLoading } = useSWR('/api/dashboard-data', fetcher, {
-    refreshInterval: 5 * 60 * 1000 // 5 minutes
+  // Date range state must come first — useMemo below reads these
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [pendingFrom, setPendingFrom] = useState('')
+  const [pendingTo, setPendingTo] = useState('')
+
+  // Build the SWR key so changing the date range triggers a new fetch
+  const swrKey = useMemo(() => {
+    const params = new URLSearchParams()
+    if (dateFrom) params.set('from', dateFrom)
+    if (dateTo)   params.set('to', dateTo)
+    const qs = params.toString()
+    return qs ? `/api/dashboard-data?${qs}` : '/api/dashboard-data'
+  }, [dateFrom, dateTo])
+
+  const { data: serverData, error, isLoading } = useSWR(swrKey, fetcher, {
+    refreshInterval: 10 * 60 * 1000 // 10 minutes
   })
 
   // State
@@ -357,8 +372,12 @@ export default function DashboardClient() {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>
           </div>
           <div>
-            <h1 className="hdr-title">Category Inventory Pivot & Stock Coverage</h1>
-            <div className="hdr-sub">Live figures from your Shopify export · hover any product name for a quick image preview</div>
+            <h1 className="hdr-title">Category Inventory Pivot &amp; Stock Coverage</h1>
+            <div className="hdr-sub">
+              {dateFrom && dateTo
+                ? <>📅 Showing <strong>{dateFrom}</strong> → <strong>{dateTo}</strong> · hover any product name for a quick image preview</>
+                : <>Live figures from your Shopify export · hover any product name for a quick image preview</>}
+            </div>
           </div>
         </div>
         <div className="hdr-right">
@@ -449,6 +468,49 @@ export default function DashboardClient() {
         <div className="filters-top">
           <div className="filters-title">🔎 Advanced Inventory Filtering<span className="sub">&nbsp;— narrow down categories or find low-stock SKUs</span></div>
         </div>
+
+        {/* ── Date Range Filter ── */}
+        <div className="date-range-bar">
+          <span className="date-range-label">📅 Date Range</span>
+          <div className="date-range-inputs">
+            <div className="date-field">
+              <label>From</label>
+              <input
+                type="date"
+                value={pendingFrom}
+                onChange={e => setPendingFrom(e.target.value)}
+              />
+            </div>
+            <span className="date-sep">→</span>
+            <div className="date-field">
+              <label>To</label>
+              <input
+                type="date"
+                value={pendingTo}
+                onChange={e => setPendingTo(e.target.value)}
+              />
+            </div>
+            <button
+              className="date-apply-btn"
+              disabled={!pendingFrom || !pendingTo}
+              onClick={() => { setDateFrom(pendingFrom); setDateTo(pendingTo) }}
+            >
+              Apply
+            </button>
+            {(dateFrom || dateTo) && (
+              <button
+                className="date-clear-btn"
+                onClick={() => { setDateFrom(''); setDateTo(''); setPendingFrom(''); setPendingTo('') }}
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
+          {dateFrom && dateTo && (
+            <span className="date-active-badge">Filtered: {dateFrom} → {dateTo}</span>
+          )}
+        </div>
+
         <div className="filters-grid">
           <div className="field">
             <label>Search SKU name</label>

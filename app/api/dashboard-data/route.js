@@ -2,15 +2,36 @@ import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const from = searchParams.get('from') // YYYY-MM-DD
+    const to   = searchParams.get('to')   // YYYY-MM-DD
+
+    // Build the Metabase POST body – include date parameters when a range is selected
+    const body = {}
+    if (from && to) {
+      // Metabase "Date Filter" parameters use type "date/range" and value "YYYY-MM-DD~YYYY-MM-DD"
+      // The slug must match the parameter slug defined on the Metabase question.
+      // Common slugs: "date_filter", "date", "created_at" – change METABASE_DATE_PARAM_SLUG if needed.
+      const slug = process.env.METABASE_DATE_PARAM_SLUG || 'date_filter'
+      body.parameters = [
+        {
+          type:   'date/range',
+          target: ['variable', ['template-tag', slug]],
+          value:  `${from}~${to}`
+        }
+      ]
+    }
+
     const metabaseUrl = `${process.env.METABASE_SITE_URL}/api/card/${process.env.METABASE_QUESTION_ID}/query/json`
     const res = await fetch(metabaseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': process.env.METABASE_API_KEY
-      }
+      },
+      body: JSON.stringify(body)
     })
 
     if (!res.ok) {
@@ -24,10 +45,13 @@ export async function GET() {
     const rows = Array.isArray(data) ? data : (data.data?.rows || [])
 
     const transformedData = {
+      // Echo back the active date range so the client can display it
+      activeFrom: from || null,
+      activeTo:   to   || null,
       periods: [
         {
           id: "whole",
-          label: "Live Data",
+          label: from && to ? `${from} → ${to}` : "Live Data",
           short: "Live",
           days: rows[0]?.days_in_range || 95,
           status: "ongoing",
@@ -43,7 +67,8 @@ export async function GET() {
             price: (r.item_price ?? r.true_unit_price ?? r.price) != null
                     ? Number(r.item_price ?? r.true_unit_price ?? r.price)
                     : false,
-            img:   r.img || r.Image || r.image || false,
+            // Fix: map image_url (the actual Metabase column name) plus common variants
+            img:   r.image_url || r.img || r.Image || r.image || r.image_src || r.photo_url || false,
             isNew: Boolean(r.isNew || r.is_new || false),
             soldMidJul:  r.soldMidJul  != null ? Number(r.soldMidJul)  : null,
             stockMidJul: r.stockMidJul != null ? Number(r.stockMidJul) : null,
