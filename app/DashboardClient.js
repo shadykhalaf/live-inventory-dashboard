@@ -31,7 +31,9 @@ export default function DashboardClient() {
     if (dateFrom) params.set('from', dateFrom)
     if (dateTo)   params.set('to', dateTo)
     const qs = params.toString()
-    return qs ? `/api/dashboard-data?${qs}` : '/api/dashboard-data'
+    const key = qs ? `/api/dashboard-data?${qs}` : '/api/dashboard-data'
+    console.log('[Dashboard] SWR key:', key)
+    return key
   }, [dateFrom, dateTo])
 
   const { data: serverData, error, isLoading, isValidating } = useSWR(swrKey, fetcher, {
@@ -428,7 +430,11 @@ export default function DashboardClient() {
           <button
             className="date-apply-btn"
             disabled={!pendingFrom || !pendingTo}
-            onClick={() => { setDateFrom(pendingFrom); setDateTo(pendingTo) }}
+            onClick={() => {
+              console.log('[Dashboard] Apply clicked:', pendingFrom, '→', pendingTo)
+              setDateFrom(pendingFrom)
+              setDateTo(pendingTo)
+            }}
           >
             Apply
           </button>
@@ -704,9 +710,8 @@ export default function DashboardClient() {
                                       className="row-thumb"
                                       width="28" height="28" alt=""
                                       referrerPolicy="no-referrer"
-                                      crossOrigin="anonymous"
                                       onError={e => {
-                                        // Fallback: if direct load fails (CORS), try through our proxy
+                                        // Fallback: if direct load fails, try through our proxy
                                         if (!e.currentTarget.dataset.proxied) {
                                           e.currentTarget.dataset.proxied = '1'
                                           e.currentTarget.src = proxyImg(r.img)
@@ -782,7 +787,6 @@ export default function DashboardClient() {
             src={hoverTip.img}
             alt=""
             referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
             onError={e => {
               if (!e.currentTarget.dataset.proxied) {
                 e.currentTarget.dataset.proxied = '1'
