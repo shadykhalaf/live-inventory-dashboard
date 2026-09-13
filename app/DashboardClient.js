@@ -5,23 +5,18 @@ import ExcelJS from 'exceljs'
 import { useRouter } from 'next/navigation'
 
 const fetcher = url => fetch(url).then(res => res.json())
-// Convert Odoo image URLs to same-origin via Next.js rewrite
-// e.g. https://in-your-shoe.odoo.com/web/image?model=X&id=Y&field=Z
-//   -> /product-image?model=X&id=Y&field=Z
-const rewriteImg = (url) => {
-  if (!url) return null
-  try {
-    const u = new URL(url)
-    // Only rewrite Odoo image URLs
-    if (u.hostname.includes('odoo.com') && u.pathname.includes('/web/image')) {
-      return `/product-image${u.search}`
-    }
-  } catch {}
-  return url // non-Odoo URLs pass through unchanged
-}
 
-// Legacy proxy fallback (kept as last resort)
-const proxyImg = (url) => url ? `/api/img-proxy?url=${encodeURIComponent(url)}` : null
+// Use wsrv.nl (free image proxy CDN) to load Odoo product images
+// This avoids all CORS, referrer, SSL, and User-Agent issues
+const imgSrc = (url) => {
+  if (!url) return null
+  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=112&h=112&fit=cover&default=1`
+}
+// Larger version for hover tooltip
+const imgSrcLarge = (url) => {
+  if (!url) return null
+  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=400&h=400&fit=contain&default=1`
+}
 
 const PLACEHOLDER_IMG = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 const NOTE_ICONS = { watch:'👁', price_down:'↓', price_up:'↑', special:'⭐' }
@@ -721,17 +716,10 @@ export default function DashboardClient() {
                               <div className="sku-name-inner">
                                 {r.img
                                   ? <img
-                                      src={rewriteImg(r.img)}
+                                      src={imgSrc(r.img)}
                                       className="row-thumb"
                                       width="28" height="28" alt=""
-                                      onError={e => {
-                                        if (!e.currentTarget.dataset.proxied) {
-                                          e.currentTarget.dataset.proxied = '1'
-                                          e.currentTarget.src = proxyImg(r.img)
-                                        } else {
-                                          e.currentTarget.style.display = 'none'
-                                        }
-                                      }}
+                                      onError={e => { e.currentTarget.style.display = 'none' }}
                                     />
                                   : <div className="row-thumb-placeholder" />}
                                 <span>{r.n}</span>
@@ -797,16 +785,9 @@ export default function DashboardClient() {
       {hoverTip.visible && (
         <div id="imgTip" style={{display: 'block', left: hoverTip.x, top: hoverTip.y}}>
           {hoverTip.img && <img
-            src={rewriteImg(hoverTip.img)}
+            src={imgSrcLarge(hoverTip.img)}
             alt=""
-            onError={e => {
-              if (!e.currentTarget.dataset.proxied) {
-                e.currentTarget.dataset.proxied = '1'
-                e.currentTarget.src = proxyImg(hoverTip.img)
-              } else {
-                e.currentTarget.style.display = 'none'
-              }
-            }}
+            onError={e => { e.currentTarget.style.display = 'none' }}
           />}
           <div className="cap">{hoverTip.name}</div>
         </div>
