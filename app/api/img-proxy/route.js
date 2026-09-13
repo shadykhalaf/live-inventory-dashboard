@@ -10,7 +10,6 @@ export async function GET(request) {
     return new NextResponse('Missing url param', { status: 400 })
   }
 
-  // Only allow http/https URLs
   let parsed
   try {
     parsed = new URL(url)
@@ -22,13 +21,23 @@ export async function GET(request) {
   }
 
   try {
+    // Mimic a DIRECT BROWSER NAVIGATION exactly.
+    // Odoo checks Sec-Fetch-* headers and returns a placeholder for
+    // sub-resource/programmatic requests. By setting these headers
+    // we make the request look like a user typing the URL in the address bar.
     const res = await fetch(url, {
       headers: {
-        // MUST send a real browser User-Agent — Odoo returns a placeholder
-        // image for bot-like user agents
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'max-age=0',
       },
       redirect: 'follow',
     })
@@ -40,6 +49,9 @@ export async function GET(request) {
 
     const contentType = res.headers.get('content-type') || 'image/jpeg'
     const buffer = await res.arrayBuffer()
+
+    // Log size so we can verify we're getting real images, not placeholders
+    console.log('[img-proxy] OK:', url.substring(0, 80), 'size:', buffer.byteLength, 'type:', contentType)
 
     return new NextResponse(buffer, {
       status: 200,
