@@ -6,18 +6,6 @@ import { useRouter } from 'next/navigation'
 
 const fetcher = url => fetch(url).then(res => res.json())
 
-// Use wsrv.nl (free image proxy CDN) to load Odoo product images
-// This avoids all CORS, referrer, SSL, and User-Agent issues
-const imgSrc = (url) => {
-  if (!url) return null
-  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=112&h=112&fit=cover&default=1`
-}
-// Larger version for hover tooltip
-const imgSrcLarge = (url) => {
-  if (!url) return null
-  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=400&h=400&fit=contain&default=1`
-}
-
 const PLACEHOLDER_IMG = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 const NOTE_ICONS = { watch:'👁', price_down:'↓', price_up:'↑', special:'⭐' }
 const NOTE_LABELS = { watch:'Watch', price_down:'Price Down', price_up:'Price Up', special:'Special Price' }
@@ -716,10 +704,14 @@ export default function DashboardClient() {
                               <div className="sku-name-inner">
                                 {r.img
                                   ? <img
-                                      src={imgSrc(r.img)}
+                                      src={r.img}
                                       className="row-thumb"
                                       width="28" height="28" alt=""
-                                      onError={e => { e.currentTarget.style.display = 'none' }}
+                                      referrerPolicy="no-referrer"
+                                      onError={e => {
+                                        console.error('[IMG FAIL]', r.n, r.img, e.type)
+                                        e.currentTarget.style.border = '2px solid red'
+                                      }}
                                     />
                                   : <div className="row-thumb-placeholder" />}
                                 <span>{r.n}</span>
@@ -785,9 +777,12 @@ export default function DashboardClient() {
       {hoverTip.visible && (
         <div id="imgTip" style={{display: 'block', left: hoverTip.x, top: hoverTip.y}}>
           {hoverTip.img && <img
-            src={imgSrcLarge(hoverTip.img)}
+            src={hoverTip.img}
             alt=""
-            onError={e => { e.currentTarget.style.display = 'none' }}
+            referrerPolicy="no-referrer"
+            onError={e => {
+              console.error('[HOVER IMG FAIL]', hoverTip.img, e.type)
+            }}
           />}
           <div className="cap">{hoverTip.name}</div>
         </div>
