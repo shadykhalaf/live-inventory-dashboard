@@ -354,3 +354,22 @@ footer.note{text-align:center;color:var(--faint);font-size:11.5px;margin-top:26p
   white-space:nowrap;
 }
 
+/* date-range-bar when placed at top of page */
+.date-range-bar--top {
+  margin-bottom:18px;
+  background:linear-gradient(135deg,#f0eeff 0%,#fff 100%);
+  border-color:var(--accent);
+  border-width:1.5px;
+}
+.date-range-bar--top .date-range-label {
+  color:var(--accent);
+  font-size:14px;
+}
+
+/* placeholder box for SKUs with no image */
+.row-thumb-placeholder {
+  width:28px;height:28px;
+  border-radius:5px;
+  background:var(--border);
+  flex:none;
+}

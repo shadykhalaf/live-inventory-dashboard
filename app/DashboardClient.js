@@ -6,6 +6,9 @@ import { useRouter } from 'next/navigation'
 
 const fetcher = url => fetch(url).then(res => res.json())
 
+// Route product images through our server-side proxy to avoid CORS/referrer blocks
+const proxyImg = (url) => url ? `/api/img-proxy?url=${encodeURIComponent(url)}` : null
+
 const PLACEHOLDER_IMG = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 const NOTE_ICONS = { watch:'👁', price_down:'↓', price_up:'↑', special:'⭐' }
 const NOTE_LABELS = { watch:'Watch', price_down:'Price Down', price_up:'Price Up', special:'Special Price' }
@@ -395,6 +398,48 @@ export default function DashboardClient() {
         </div>
       </div>
 
+      {/* ── Date Range Filter – top of page, scopes ALL data ── */}
+      <div className="date-range-bar date-range-bar--top">
+        <span className="date-range-label">📅 Date Range</span>
+        <div className="date-range-inputs">
+          <div className="date-field">
+            <label>From</label>
+            <input
+              type="date"
+              value={pendingFrom}
+              onChange={e => setPendingFrom(e.target.value)}
+            />
+          </div>
+          <span className="date-sep">→</span>
+          <div className="date-field">
+            <label>To</label>
+            <input
+              type="date"
+              value={pendingTo}
+              onChange={e => setPendingTo(e.target.value)}
+            />
+          </div>
+          <button
+            className="date-apply-btn"
+            disabled={!pendingFrom || !pendingTo}
+            onClick={() => { setDateFrom(pendingFrom); setDateTo(pendingTo) }}
+          >
+            Apply
+          </button>
+          {(dateFrom || dateTo) && (
+            <button
+              className="date-clear-btn"
+              onClick={() => { setDateFrom(''); setDateTo(''); setPendingFrom(''); setPendingTo('') }}
+            >
+              ✕ Clear
+            </button>
+          )}
+        </div>
+        {dateFrom && dateTo && (
+          <span className="date-active-badge">Filtered: {dateFrom} → {dateTo}</span>
+        )}
+      </div>
+
       <div className={`tag-note ${newOnly ? 'show' : ''}`} id="tagNote">
         <span>🏷️</span><span><b>New Collection Only</b> is on — every card, ranking, and table row below is scoped to the {fmtNum(agg.newCount)} SKUs tagged as part of the SS26 new collection. Toggle it off to see the full catalog again.</span>
       </div>
@@ -467,48 +512,6 @@ export default function DashboardClient() {
       <div className="filters">
         <div className="filters-top">
           <div className="filters-title">🔎 Advanced Inventory Filtering<span className="sub">&nbsp;— narrow down categories or find low-stock SKUs</span></div>
-        </div>
-
-        {/* ── Date Range Filter ── */}
-        <div className="date-range-bar">
-          <span className="date-range-label">📅 Date Range</span>
-          <div className="date-range-inputs">
-            <div className="date-field">
-              <label>From</label>
-              <input
-                type="date"
-                value={pendingFrom}
-                onChange={e => setPendingFrom(e.target.value)}
-              />
-            </div>
-            <span className="date-sep">→</span>
-            <div className="date-field">
-              <label>To</label>
-              <input
-                type="date"
-                value={pendingTo}
-                onChange={e => setPendingTo(e.target.value)}
-              />
-            </div>
-            <button
-              className="date-apply-btn"
-              disabled={!pendingFrom || !pendingTo}
-              onClick={() => { setDateFrom(pendingFrom); setDateTo(pendingTo) }}
-            >
-              Apply
-            </button>
-            {(dateFrom || dateTo) && (
-              <button
-                className="date-clear-btn"
-                onClick={() => { setDateFrom(''); setDateTo(''); setPendingFrom(''); setPendingTo('') }}
-              >
-                ✕ Clear
-              </button>
-            )}
-          </div>
-          {dateFrom && dateTo && (
-            <span className="date-active-badge">Filtered: {dateFrom} → {dateTo}</span>
-          )}
         </div>
 
         <div className="filters-grid">
@@ -684,9 +687,11 @@ export default function DashboardClient() {
                         const rTier = riseTier(r.sold, r.stock, r.soldMidJul, r.stockMidJul)
                         return (
                           <tr key={r.n}>
-                            <td className="sku-name hoverable" onMouseEnter={e => handleHover(e, r.img, r.n)} onMouseMove={handleMove} onMouseLeave={() => setHoverTip(prev => ({...prev, visible: false}))}>
+                            <td className="sku-name hoverable" onMouseEnter={e => handleHover(e, proxyImg(r.img), r.n)} onMouseMove={handleMove} onMouseLeave={() => setHoverTip(prev => ({...prev, visible: false}))}>
                               <div className="sku-name-inner">
-                                <img src={r.img || PLACEHOLDER_IMG} className="row-thumb" width="28" height="28" alt="" />
+                                {r.img
+                                  ? <img src={proxyImg(r.img)} className="row-thumb" width="28" height="28" alt="" onError={e => { e.currentTarget.style.display='none' }} />
+                                  : <div className="row-thumb-placeholder" />}
                                 <span>{r.n}</span>
                                 {r.isNew && <span className="new-collection-badge">NEW</span>}
                                 {currentNote && <span className={`note-badge note-${currentNote}`}>{NOTE_ICONS[currentNote]} {NOTE_LABELS[currentNote]}</span>}

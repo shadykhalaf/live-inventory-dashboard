@@ -11,18 +11,19 @@ export async function GET(request) {
     // Build the Metabase POST body – include date parameters when a range is selected
     const body = {}
     if (from && to) {
-      // Metabase "Date Filter" parameters use type "date/range" and value "YYYY-MM-DD~YYYY-MM-DD"
-      // The slug must match the parameter slug defined on the Metabase question.
-      // Common slugs: "date_filter", "date", "created_at" – change METABASE_DATE_PARAM_SLUG if needed.
+      // {{date_filter}} is a FIELD FILTER in Metabase (mapped to a table.column).
+      // Field filters MUST use target: ["dimension", ["template-tag", slug]]
+      // NOT ["variable", ...] — that is only for simple variable template tags.
       const slug = process.env.METABASE_DATE_PARAM_SLUG || 'date_filter'
       body.parameters = [
         {
           type:   'date/range',
-          target: ['variable', ['template-tag', slug]],
+          target: ['dimension', ['template-tag', slug]],
           value:  `${from}~${to}`
         }
       ]
     }
+
 
     const metabaseUrl = `${process.env.METABASE_SITE_URL}/api/card/${process.env.METABASE_QUESTION_ID}/query/json`
     const res = await fetch(metabaseUrl, {
