@@ -704,6 +704,7 @@ export default function DashboardClient() {
                           <tr key={r.n}>
                             <td className="sku-name hoverable" onMouseEnter={e => handleHover(e, r.img, r.n)} onMouseMove={handleMove} onMouseLeave={() => setHoverTip(prev => ({...prev, visible: false}))}>
                               <div className="sku-name-inner">
+                                {r.img
                                   ? <img
                                       src={r.img}
                                       className="row-thumb"
