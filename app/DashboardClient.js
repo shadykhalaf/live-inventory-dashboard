@@ -704,13 +704,19 @@ export default function DashboardClient() {
                           <tr key={r.n}>
                             <td className="sku-name hoverable" onMouseEnter={e => handleHover(e, r.img, r.n)} onMouseMove={handleMove} onMouseLeave={() => setHoverTip(prev => ({...prev, visible: false}))}>
                               <div className="sku-name-inner">
-                                {r.img
                                   ? <img
-                                      src={proxyImg(r.img)}
+                                      src={r.img}
                                       className="row-thumb"
                                       width="28" height="28" alt=""
-                                      loading="lazy"
-                                      onError={e => { e.currentTarget.style.display = 'none' }}
+                                      referrerPolicy="no-referrer"
+                                      onError={e => {
+                                        if (!e.currentTarget.dataset.proxied) {
+                                          e.currentTarget.dataset.proxied = '1'
+                                          e.currentTarget.src = proxyImg(r.img)
+                                        } else {
+                                          e.currentTarget.style.display = 'none'
+                                        }
+                                      }}
                                     />
                                   : <div className="row-thumb-placeholder" />}
                                 <span>{r.n}</span>
@@ -776,9 +782,17 @@ export default function DashboardClient() {
       {hoverTip.visible && (
         <div id="imgTip" style={{display: 'block', left: hoverTip.x, top: hoverTip.y}}>
           {hoverTip.img && <img
-            src={proxyImg(hoverTip.img)}
+            src={hoverTip.img}
             alt=""
-            onError={e => { e.currentTarget.style.display = 'none' }}
+            referrerPolicy="no-referrer"
+            onError={e => {
+              if (!e.currentTarget.dataset.proxied) {
+                e.currentTarget.dataset.proxied = '1'
+                e.currentTarget.src = proxyImg(hoverTip.img)
+              } else {
+                e.currentTarget.style.display = 'none'
+              }
+            }}
           />}
           <div className="cap">{hoverTip.name}</div>
         </div>
