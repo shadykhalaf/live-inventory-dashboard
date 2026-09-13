@@ -5,8 +5,22 @@ import ExcelJS from 'exceljs'
 import { useRouter } from 'next/navigation'
 
 const fetcher = url => fetch(url).then(res => res.json())
+// Convert Odoo image URLs to same-origin via Next.js rewrite
+// e.g. https://in-your-shoe.odoo.com/web/image?model=X&id=Y&field=Z
+//   -> /product-image?model=X&id=Y&field=Z
+const rewriteImg = (url) => {
+  if (!url) return null
+  try {
+    const u = new URL(url)
+    // Only rewrite Odoo image URLs
+    if (u.hostname.includes('odoo.com') && u.pathname.includes('/web/image')) {
+      return `/product-image${u.search}`
+    }
+  } catch {}
+  return url // non-Odoo URLs pass through unchanged
+}
 
-// Route product images through our server-side proxy to avoid CORS/referrer blocks
+// Legacy proxy fallback (kept as last resort)
 const proxyImg = (url) => url ? `/api/img-proxy?url=${encodeURIComponent(url)}` : null
 
 const PLACEHOLDER_IMG = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
@@ -430,6 +444,7 @@ export default function DashboardClient() {
           <button
             className="date-apply-btn"
             disabled={!pendingFrom || !pendingTo}
+            style={{background:'#5B4FE9',color:'#fff',padding:'8px 22px',borderRadius:'8px',border:'none',fontWeight:700,fontSize:'13px',cursor:'pointer',boxShadow:'0 2px 6px rgba(91,79,233,.35)'}}
             onClick={() => {
               console.log('[Dashboard] Apply clicked:', pendingFrom, '→', pendingTo)
               setDateFrom(pendingFrom)
@@ -706,10 +721,9 @@ export default function DashboardClient() {
                               <div className="sku-name-inner">
                                 {r.img
                                   ? <img
-                                      src={r.img}
+                                      src={rewriteImg(r.img)}
                                       className="row-thumb"
                                       width="28" height="28" alt=""
-                                      referrerPolicy="no-referrer"
                                       onError={e => {
                                         if (!e.currentTarget.dataset.proxied) {
                                           e.currentTarget.dataset.proxied = '1'
@@ -783,9 +797,8 @@ export default function DashboardClient() {
       {hoverTip.visible && (
         <div id="imgTip" style={{display: 'block', left: hoverTip.x, top: hoverTip.y}}>
           {hoverTip.img && <img
-            src={hoverTip.img}
+            src={rewriteImg(hoverTip.img)}
             alt=""
-            referrerPolicy="no-referrer"
             onError={e => {
               if (!e.currentTarget.dataset.proxied) {
                 e.currentTarget.dataset.proxied = '1'
