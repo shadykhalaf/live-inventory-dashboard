@@ -6,6 +6,10 @@ import { useRouter } from 'next/navigation'
 
 const fetcher = url => fetch(url).then(res => res.json())
 
+// Proxy Odoo images through our API route — Odoo blocks direct <img> sub-resource loads
+// but our server-side proxy fetches successfully (confirmed: 200, image/png)
+const proxyImg = (url) => url ? `/api/img-proxy?url=${encodeURIComponent(url)}` : null
+
 const PLACEHOLDER_IMG = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 const NOTE_ICONS = { watch:'👁', price_down:'↓', price_up:'↑', special:'⭐' }
 const NOTE_LABELS = { watch:'Watch', price_down:'Price Down', price_up:'Price Up', special:'Special Price' }
@@ -704,14 +708,10 @@ export default function DashboardClient() {
                               <div className="sku-name-inner">
                                 {r.img
                                   ? <img
-                                      src={r.img}
+                                      src={proxyImg(r.img)}
                                       className="row-thumb"
                                       width="28" height="28" alt=""
-                                      referrerPolicy="no-referrer"
-                                      onError={e => {
-                                        console.error('[IMG FAIL]', r.n, r.img, e.type)
-                                        e.currentTarget.style.border = '2px solid red'
-                                      }}
+                                      onError={e => { e.currentTarget.style.display = 'none' }}
                                     />
                                   : <div className="row-thumb-placeholder" />}
                                 <span>{r.n}</span>
@@ -777,12 +777,9 @@ export default function DashboardClient() {
       {hoverTip.visible && (
         <div id="imgTip" style={{display: 'block', left: hoverTip.x, top: hoverTip.y}}>
           {hoverTip.img && <img
-            src={hoverTip.img}
+            src={proxyImg(hoverTip.img)}
             alt=""
-            referrerPolicy="no-referrer"
-            onError={e => {
-              console.error('[HOVER IMG FAIL]', hoverTip.img, e.type)
-            }}
+            onError={e => { e.currentTarget.style.display = 'none' }}
           />}
           <div className="cap">{hoverTip.name}</div>
         </div>
