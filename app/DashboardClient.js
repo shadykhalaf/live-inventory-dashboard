@@ -706,19 +706,11 @@ export default function DashboardClient() {
                               <div className="sku-name-inner">
                                 {r.img
                                   ? <img
-                                      src={r.img}
+                                      src={proxyImg(r.img)}
                                       className="row-thumb"
                                       width="28" height="28" alt=""
-                                      referrerPolicy="no-referrer"
-                                      onError={e => {
-                                        // Fallback: if direct load fails, try through our proxy
-                                        if (!e.currentTarget.dataset.proxied) {
-                                          e.currentTarget.dataset.proxied = '1'
-                                          e.currentTarget.src = proxyImg(r.img)
-                                        } else {
-                                          e.currentTarget.style.display = 'none'
-                                        }
-                                      }}
+                                      loading="lazy"
+                                      onError={e => { e.currentTarget.style.display = 'none' }}
                                     />
                                   : <div className="row-thumb-placeholder" />}
                                 <span>{r.n}</span>
@@ -784,15 +776,9 @@ export default function DashboardClient() {
       {hoverTip.visible && (
         <div id="imgTip" style={{display: 'block', left: hoverTip.x, top: hoverTip.y}}>
           {hoverTip.img && <img
-            src={hoverTip.img}
+            src={proxyImg(hoverTip.img)}
             alt=""
-            referrerPolicy="no-referrer"
-            onError={e => {
-              if (!e.currentTarget.dataset.proxied) {
-                e.currentTarget.dataset.proxied = '1'
-                e.currentTarget.src = proxyImg(hoverTip.img)
-              }
-            }}
+            onError={e => { e.currentTarget.style.display = 'none' }}
           />}
           <div className="cap">{hoverTip.name}</div>
         </div>

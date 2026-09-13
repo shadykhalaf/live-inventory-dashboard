@@ -9,23 +9,51 @@ export async function GET(request) {
     const to    = searchParams.get('to')    // YYYY-MM-DD
     const debug = searchParams.get('debug') // set to '1' to see raw Metabase row
 
-    // Build the Metabase POST body
+    const siteUrl    = process.env.METABASE_SITE_URL
+    const questionId = process.env.METABASE_QUESTION_ID
+    const apiKey     = process.env.METABASE_API_KEY
+    const paramSlug  = process.env.METABASE_DATE_PARAM_SLUG || 'date_filter'
+
+    // ── Step 1: If date range is requested, look up the card's parameter UUID ──
+    let paramId = paramSlug
+    if (from && to) {
+      try {
+        const cardRes = await fetch(`${siteUrl}/api/card/${questionId}`, {
+          headers: { 'x-api-key': apiKey }
+        })
+        if (cardRes.ok) {
+          const card = await cardRes.json()
+          // Find the matching template tag parameter by slug/name
+          const paramDef = (card.parameters || []).find(
+            p => p.slug === paramSlug || p.id === paramSlug || p.name === paramSlug
+          )
+          if (paramDef) {
+            paramId = paramDef.id
+            console.log('[dashboard-data] Found param UUID:', paramId, 'for slug:', paramSlug)
+          } else {
+            console.log('[dashboard-data] No param found matching slug:', paramSlug,
+              'Available params:', JSON.stringify((card.parameters || []).map(p => ({ id: p.id, slug: p.slug, name: p.name, type: p.type }))))
+          }
+        }
+      } catch (e) {
+        console.log('[dashboard-data] Could not fetch card metadata:', e.message)
+      }
+    }
+
+    // ── Step 2: Build the Metabase POST body ──
     const body = {}
     if (from && to) {
-      // {{date_filter}} is defined with [[ AND {{date_filter}} ]] in the SQL.
-      // Metabase expects just id + type + value for template-tag parameters.
-      const slug = process.env.METABASE_DATE_PARAM_SLUG || 'date_filter'
       body.parameters = [
         {
-          id:     slug,
+          id:     paramId,
           type:   'date/range',
-          target: ['dimension', ['template-tag', slug]],
+          target: ['dimension', ['template-tag', paramSlug]],
           value:  `${from}~${to}`
         }
       ]
     }
 
-    const metabaseUrl = `${process.env.METABASE_SITE_URL}/api/card/${process.env.METABASE_QUESTION_ID}/query/json`
+    const metabaseUrl = `${siteUrl}/api/card/${questionId}/query/json`
 
     console.log('[dashboard-data] Fetching:', metabaseUrl)
     console.log('[dashboard-data] Body:', JSON.stringify(body))
@@ -34,7 +62,7 @@ export async function GET(request) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.METABASE_API_KEY
+        'x-api-key': apiKey
       },
       body: JSON.stringify(body)
     })
@@ -65,6 +93,7 @@ export async function GET(request) {
       // Echo back the active date range so the client can display it
       activeFrom: from || null,
       activeTo:   to   || null,
+      paramIdUsed: from && to ? paramId : null,
       periods: [
         {
           id: "whole",
@@ -100,6 +129,7 @@ export async function GET(request) {
         rawFirstRow: rows[0],
         totalRows: rows.length,
         bodySent: body,
+        paramIdUsed: paramId,
         transformedFirstRow: transformedData.periods[0].rows[0],
       }
     }
