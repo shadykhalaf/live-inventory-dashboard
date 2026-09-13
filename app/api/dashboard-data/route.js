@@ -5,18 +5,19 @@ export const dynamic = 'force-dynamic'
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url)
-    const from = searchParams.get('from') // YYYY-MM-DD
-    const to   = searchParams.get('to')   // YYYY-MM-DD
+    const from  = searchParams.get('from')  // YYYY-MM-DD
+    const to    = searchParams.get('to')    // YYYY-MM-DD
+    const debug = searchParams.get('debug') // set to '1' to see raw Metabase row
 
-    // Build the Metabase POST body – include date parameters when a range is selected
+    // Build the Metabase POST body
     const body = {}
     if (from && to) {
-      // {{date_filter}} is a FIELD FILTER in Metabase (mapped to a table.column).
-      // Field filters MUST use target: ["dimension", ["template-tag", slug]]
-      // NOT ["variable", ...] — that is only for simple variable template tags.
+      // {{date_filter}} is defined with [[ AND {{date_filter}} ]] in the SQL.
+      // Metabase expects just id + type + value for template-tag parameters.
       const slug = process.env.METABASE_DATE_PARAM_SLUG || 'date_filter'
       body.parameters = [
         {
+          id:     slug,
           type:   'date/range',
           target: ['dimension', ['template-tag', slug]],
           value:  `${from}~${to}`
@@ -24,8 +25,11 @@ export async function GET(request) {
       ]
     }
 
-
     const metabaseUrl = `${process.env.METABASE_SITE_URL}/api/card/${process.env.METABASE_QUESTION_ID}/query/json`
+
+    console.log('[dashboard-data] Fetching:', metabaseUrl)
+    console.log('[dashboard-data] Body:', JSON.stringify(body))
+
     const res = await fetch(metabaseUrl, {
       method: 'POST',
       headers: {
@@ -36,14 +40,26 @@ export async function GET(request) {
     })
 
     if (!res.ok) {
-      console.error('Metabase Error:', await res.text())
-      return NextResponse.json({ error: 'Failed to fetch data from Metabase' }, { status: 502 })
+      const errorText = await res.text()
+      console.error('[dashboard-data] Metabase Error:', res.status, errorText)
+      return NextResponse.json({
+        error: 'Failed to fetch data from Metabase',
+        metabaseStatus: res.status,
+        metabaseError: errorText.substring(0, 500)
+      }, { status: 502 })
     }
 
     const data = await res.json()
 
     // Metabase returns a flat array of objects with these column names
     const rows = Array.isArray(data) ? data : (data.data?.rows || [])
+
+    console.log('[dashboard-data] Rows received:', rows.length)
+    if (rows.length > 0) {
+      console.log('[dashboard-data] First row keys:', Object.keys(rows[0]).join(', '))
+      console.log('[dashboard-data] First row image_url:', rows[0].image_url)
+      console.log('[dashboard-data] First row days_in_range:', rows[0].days_in_range)
+    }
 
     const transformedData = {
       // Echo back the active date range so the client can display it
@@ -68,7 +84,6 @@ export async function GET(request) {
             price: (r.item_price ?? r.true_unit_price ?? r.price) != null
                     ? Number(r.item_price ?? r.true_unit_price ?? r.price)
                     : false,
-            // Fix: map image_url (the actual Metabase column name) plus common variants
             img:   r.image_url || r.img || r.Image || r.image || r.image_src || r.photo_url || false,
             isNew: Boolean(r.isNew || r.is_new || false),
             soldMidJul:  r.soldMidJul  != null ? Number(r.soldMidJul)  : null,
@@ -78,13 +93,24 @@ export async function GET(request) {
       ]
     }
 
+    // Optional: return a debug snapshot of the raw Metabase row
+    if (debug === '1' && rows.length > 0) {
+      transformedData._debug = {
+        rawKeys: Object.keys(rows[0]),
+        rawFirstRow: rows[0],
+        totalRows: rows.length,
+        bodySent: body,
+        transformedFirstRow: transformedData.periods[0].rows[0],
+      }
+    }
+
     return NextResponse.json(transformedData, {
       headers: {
         'Cache-Control': 's-maxage=60, stale-while-revalidate=300'
       }
     })
   } catch (error) {
-    console.error('API Route Error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
+    console.error('[dashboard-data] API Route Error:', error)
+    return NextResponse.json({ error: 'Internal Server Error', message: error.message }, { status: 500 })
   }
 }

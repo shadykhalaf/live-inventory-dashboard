@@ -34,7 +34,7 @@ export default function DashboardClient() {
     return qs ? `/api/dashboard-data?${qs}` : '/api/dashboard-data'
   }, [dateFrom, dateTo])
 
-  const { data: serverData, error, isLoading } = useSWR(swrKey, fetcher, {
+  const { data: serverData, error, isLoading, isValidating } = useSWR(swrKey, fetcher, {
     refreshInterval: 10 * 60 * 1000 // 10 minutes
   })
 
@@ -332,8 +332,14 @@ export default function DashboardClient() {
 
   // --- Rendering Prep ---
   if (isLoading || !serverData) return <div style={{padding:'40px', textAlign:'center'}}>Loading Live Data...</div>
-  if (error) return <div style={{padding:'40px', color:'red'}}>Error loading dashboard data.</div>
+  if (error) return <div style={{padding:'40px', color:'red'}}>Error loading dashboard data. {error.message}</div>
   if (!period) return <div style={{padding:'40px'}}>No data available.</div>
+
+  // Debug: log first row image data
+  if (period.rows.length > 0 && typeof window !== 'undefined') {
+    console.log('[Dashboard] First row img:', period.rows[0].img)
+    console.log('[Dashboard] Total rows with img:', period.rows.filter(r => r.img).length, '/', period.rows.length)
+  }
 
   const rows = visRows(period)
   const agg = aggregate(rows)
@@ -435,8 +441,11 @@ export default function DashboardClient() {
             </button>
           )}
         </div>
-        {dateFrom && dateTo && (
-          <span className="date-active-badge">Filtered: {dateFrom} → {dateTo}</span>
+        {isValidating && (
+          <span className="date-active-badge" style={{background:'#FEF3E2',color:'#D97706'}}>⏳ Loading…</span>
+        )}
+        {dateFrom && dateTo && !isValidating && (
+          <span className="date-active-badge">Filtered: {dateFrom} → {dateTo} · {period.days} days</span>
         )}
       </div>
 
@@ -687,10 +696,25 @@ export default function DashboardClient() {
                         const rTier = riseTier(r.sold, r.stock, r.soldMidJul, r.stockMidJul)
                         return (
                           <tr key={r.n}>
-                            <td className="sku-name hoverable" onMouseEnter={e => handleHover(e, proxyImg(r.img), r.n)} onMouseMove={handleMove} onMouseLeave={() => setHoverTip(prev => ({...prev, visible: false}))}>
+                            <td className="sku-name hoverable" onMouseEnter={e => handleHover(e, r.img, r.n)} onMouseMove={handleMove} onMouseLeave={() => setHoverTip(prev => ({...prev, visible: false}))}>
                               <div className="sku-name-inner">
                                 {r.img
-                                  ? <img src={proxyImg(r.img)} className="row-thumb" width="28" height="28" alt="" onError={e => { e.currentTarget.style.display='none' }} />
+                                  ? <img
+                                      src={r.img}
+                                      className="row-thumb"
+                                      width="28" height="28" alt=""
+                                      referrerPolicy="no-referrer"
+                                      crossOrigin="anonymous"
+                                      onError={e => {
+                                        // Fallback: if direct load fails (CORS), try through our proxy
+                                        if (!e.currentTarget.dataset.proxied) {
+                                          e.currentTarget.dataset.proxied = '1'
+                                          e.currentTarget.src = proxyImg(r.img)
+                                        } else {
+                                          e.currentTarget.style.display = 'none'
+                                        }
+                                      }}
+                                    />
                                   : <div className="row-thumb-placeholder" />}
                                 <span>{r.n}</span>
                                 {r.isNew && <span className="new-collection-badge">NEW</span>}
@@ -754,7 +778,18 @@ export default function DashboardClient() {
 
       {hoverTip.visible && (
         <div id="imgTip" style={{display: 'block', left: hoverTip.x, top: hoverTip.y}}>
-          <img src={hoverTip.img} alt="" />
+          {hoverTip.img && <img
+            src={hoverTip.img}
+            alt=""
+            referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
+            onError={e => {
+              if (!e.currentTarget.dataset.proxied) {
+                e.currentTarget.dataset.proxied = '1'
+                e.currentTarget.src = proxyImg(hoverTip.img)
+              }
+            }}
+          />}
           <div className="cap">{hoverTip.name}</div>
         </div>
       )}
