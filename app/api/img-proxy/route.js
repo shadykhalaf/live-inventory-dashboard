@@ -24,14 +24,17 @@ export async function GET(request) {
   try {
     const res = await fetch(url, {
       headers: {
-        // Mimic a browser to avoid bot-blocking
-        'User-Agent': 'Mozilla/5.0 (compatible; DashboardBot/1.0)',
+        // MUST send a real browser User-Agent — Odoo returns a placeholder
+        // image for bot-like user agents
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
       },
-      // Server-side fetch has no CORS restrictions
+      redirect: 'follow',
     })
 
     if (!res.ok) {
+      console.error('[img-proxy] Upstream error:', res.status, url)
       return new NextResponse(`Upstream error: ${res.status}`, { status: 502 })
     }
 
@@ -42,11 +45,12 @@ export async function GET(request) {
       status: 200,
       headers: {
         'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
+        'Access-Control-Allow-Origin': '*',
       },
     })
   } catch (err) {
-    console.error('img-proxy error:', err)
+    console.error('[img-proxy] Fetch error:', err.message, url)
     return new NextResponse('Failed to fetch image', { status: 502 })
   }
 }

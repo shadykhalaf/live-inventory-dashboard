@@ -43,11 +43,12 @@ export async function GET(request) {
     // ── Step 2: Build the Metabase POST body ──
     const body = {}
     if (from && to) {
+      // For card query endpoint, Metabase resolves the target from the card definition.
+      // We only need: id (matching the card's parameter UUID), type, and value.
       body.parameters = [
         {
           id:     paramId,
           type:   'date/range',
-          target: ['dimension', ['template-tag', paramSlug]],
           value:  `${from}~${to}`
         }
       ]
