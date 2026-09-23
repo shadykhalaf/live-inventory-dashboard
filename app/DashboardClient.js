@@ -645,6 +645,7 @@ export default function DashboardClient() {
                 </div>
                 <div className="group-stats">
                   <div className="gstat"><div className="k">Accumulated Rev</div><div className="v">{fmtMoney(catAgg.rev)}</div></div>
+                  <div className="gstat"><div className="k">Items Sold</div><div className="v">{fmtNum(catAgg.sold)}</div></div>
                   <div className="gstat"><div className="k">Group Stock</div><div className="v">{fmtNum(catAgg.stock)}</div></div>
                   <div className="gstat"><div className="k">Avg Sales/Day</div><div className="v">{fmt1(catAgg.ads)}</div></div>
                   <div className="gstat"><div className="k">Sell-Through</div><div className="v">{catAgg.st.toFixed(2)}%</div></div>
