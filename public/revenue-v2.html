@@ -964,7 +964,53 @@ var __UIMod = (() => {
 })();
 
 const UI = __UIMod.UI;
+(async function(){
 const DATA = JSON.parse(document.getElementById('dataStore').textContent);
+// Live overlay: when served over http(s) (the Vercel deployment), pull the sales/stock figures from the Metabase question through
+// the existing /api/dashboard-data route and lay them over the embedded rows by product name. Everything the Metabase question does
+// not carry (cost, tags, online split, launch month, sizes) keeps coming from the embedded snapshot. If the call fails for any reason the
+// page shows the snapshot unchanged and says so in the masthead.
+const LIVE = { state: 'snapshot', matched: 0, total: 0, from: '', to: '' };
+if (/^https?:$/.test(location.protocol) && !/[?&]live=0\b/.test(location.search)) {
+  try {
+    const p0 = DATA.periods[0];
+    const cairo = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date()); // YYYY-MM-DD
+    const from = '2026-09-01';
+    const res = await fetch(`/api/dashboard-data?from=${from}&to=${cairo}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    const liveRows = (j.periods && j.periods[0] && j.periods[0].rows) || [];
+    if (!liveRows.length) throw new Error('empty');
+    const byName = new Map(liveRows.map((r) => [r.n, r]));
+    let matched = 0;
+    for (const r of p0.rows) {
+      const l = byName.get(r.n);
+      if (!l) continue;
+      matched++;
+      r.rev = l.rev; r.sold = l.sold; r.stock = l.stock; r.ads = l.ads; r.adr = l.adr; r.cov = l.cov;
+      if (l.price !== false && l.price != null) r.price = l.price;
+      if (l.img) r.img = l.img;
+    }
+    const days = Math.max(1, Math.round((Date.parse(cairo) - Date.parse(from)) / 864e5) + 1);
+    const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const fmt = (iso) => `${+iso.slice(8, 10)} ${MN[+iso.slice(5, 7) - 1]}`;
+    // the route reports Metabase's days_in_range, or a placeholder 95 when the column is missing
+    const mbDays = Math.round(Number(j.periods[0].days) || 0);
+    p0.days = mbDays && mbDays !== 95 ? mbDays : days;
+    p0.short = `${fmt(from)} – ${fmt(cairo)}`;
+    p0.label = `All products — ${fmt(from)} to ${fmt(cairo)} (${p0.days} days)`;
+    Object.assign(LIVE, { state: 'live', matched, total: p0.rows.length, from, to: cairo, metabaseRows: liveRows.length });
+  } catch (e) {
+    LIVE.state = 'snapshot-fallback'; LIVE.error = String(e && e.message || e);
+  }
+}
+window.__live = LIVE;
+const stamp = document.getElementById('mastDate');
+if (stamp) {
+  if (LIVE.state === 'live') { stamp.textContent = `LIVE · METABASE · ${DATA.periods[0].short.toUpperCase()}`; stamp.title = `${LIVE.matched} of ${LIVE.total} products matched the live Metabase data; the rest keep their snapshot figures.`; }
+  else if (LIVE.state === 'snapshot-fallback') { stamp.textContent = `SNAPSHOT · LIVE DATA UNAVAILABLE`; stamp.title = LIVE.error; }
+}
+
 const RAW_PERIODS = DATA.periods; // chronological: [{id,label,short,days,status,rows:[...]}]
 
 function round1(n){ return Math.round(n*10)/10; }
@@ -2405,6 +2451,7 @@ render();
 
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && state.sizesFull){ state.sizesFull=false; render(); } });
 
+})();
 </script>
 </body>
 </html>
