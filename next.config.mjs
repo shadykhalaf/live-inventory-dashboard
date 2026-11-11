@@ -1,8 +1,14 @@
 /** @type {import("next").NextConfig} */
 const nextConfig = {
-  // Redesigned (brutalist) dashboard, shipped as a self-contained page. The live Metabase dashboard at "/" is untouched.
+  // "/" is the redesigned dashboard (self-contained page in /public, fed live from Metabase via /api/live-data).
+  // The previous dashboard stays available at /v1.
   async rewrites() {
-    return [{ source: '/v2', destination: '/revenue-v2.html' }];
+    return {
+      beforeFiles: [
+        { source: '/', destination: '/revenue-v2.html' },
+        { source: '/v2', destination: '/revenue-v2.html' },
+      ],
+    };
   },
 };
 export default nextConfig;

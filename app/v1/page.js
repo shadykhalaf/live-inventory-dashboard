@@ -1,4 +1,4 @@
-import DashboardClient from './DashboardClient'
+import DashboardClient from '../DashboardClient'
 
 export const metadata = {
   title: 'Category Inventory Pivot & Stock Coverage',

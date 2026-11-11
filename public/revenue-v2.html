@@ -360,10 +360,57 @@ footer.note{border:var(--line);background:var(--ink);color:#d8d6c9;padding:18px 
 @media(max-width:1100px){.mast-controls{grid-template-columns:1fr}.ctl{border-right:0;border-bottom:var(--line)}.ctl:last-child{border-bottom:0}.mast-main{grid-template-columns:1fr}}
 @media(max-width:640px){.wrap{padding:12px 12px 60px}.gstat{min-width:60px;padding:2px 9px}.ms-cell{font-size:9px;padding:6px 0}.cards{grid-template-columns:1fr 1fr}.card.rank{grid-column:span 2}.pill-btn,.scope-seg button{padding:8px 9px;font-size:10.5px}}
 @media(prefers-reduced-motion:no-preference){.export-btn,.menu-btn,.sort-btn{transition:background .08s}}
+
+/* range bar + calendar */
+.live-badge{font:700 10px var(--mono);letter-spacing:.1em;margin-left:8px;color:var(--green)}
+.rangebar{display:flex;flex-direction:column;gap:9px;align-items:flex-start}
+.range-btn{appearance:none;border:var(--line);background:#fff;display:flex;align-items:center;gap:10px;padding:9px 12px;font:600 12px var(--mono);color:var(--ink);text-align:left;box-shadow:var(--hard-s)}
+.range-btn:hover:not(:disabled),.range-btn.is-open{background:var(--acid)}
+.range-btn b{font:400 16px var(--head);letter-spacing:-.01em}
+.range-btn i:not(.caret){font-style:normal;color:var(--red);font-weight:800}
+.range-btn em{font:700 10px var(--mono);font-style:normal;background:var(--ink);color:var(--acid);padding:3px 6px;letter-spacing:.08em}
+.range-k{font:600 9.5px var(--mono);letter-spacing:.14em;color:var(--mute)}
+.range-btn:disabled{opacity:.7;cursor:default;box-shadow:none}
+.range-quick{display:flex;flex-wrap:wrap}
+.range-q{appearance:none;border:var(--line);margin:0 -2px -2px 0;background:var(--paper);padding:6px 10px;font:700 10.5px var(--mono);letter-spacing:.06em;color:var(--ink)}
+.range-q:hover{background:var(--acid);position:relative;z-index:1}
+.range-q.is-on{background:var(--ink);color:var(--acid);position:relative;z-index:1}
+.loadbar{position:fixed;left:0;right:0;top:0;z-index:300;background:var(--acid);border-bottom:var(--line);font:700 12px var(--mono);letter-spacing:.16em;padding:8px 14px;text-align:center;animation:lb 1s steps(2) infinite}
+.loadbar[hidden]{display:none}
+@keyframes lb{50%{background:var(--paper)}}
+.cal{width:min(92vw,340px)}
+.cal-presets{display:flex;flex-wrap:wrap;border-bottom:var(--line)}
+.cal-preset{appearance:none;border:0;border-right:1px solid var(--ink);border-bottom:1px solid var(--ink);background:var(--paper);padding:8px 10px;font:700 10px var(--mono);letter-spacing:.06em;flex:1 1 auto;color:var(--ink)}
+.cal-preset:hover{background:var(--acid)}
+.cal-head{display:flex;align-items:stretch;border-bottom:var(--line)}
+.cal-title{flex:1;text-align:center;font:400 18px var(--head);padding:8px;text-transform:uppercase}
+.cal-nav{appearance:none;border:0;background:var(--paper);width:44px;font:700 14px var(--mono);color:var(--ink)}
+.cal-nav:first-child{border-right:var(--line)}.cal-nav:last-child{border-left:var(--line)}
+.cal-nav:hover{background:var(--acid)}
+.cal-dow{display:grid;grid-template-columns:repeat(7,1fr);background:var(--ink);color:var(--acid);font:700 10px var(--mono);letter-spacing:.1em;text-align:center}
+.cal-dow span{padding:5px 0}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr)}
+.cal-day,.cal-pad{height:38px;border-right:1px solid var(--ink);border-bottom:1px solid var(--ink)}
+.cal-grid>:nth-child(7n){border-right:0}
+.cal-day{appearance:none;border-top:0;border-left:0;background:#fff;font:600 12px var(--mono);color:var(--ink)}
+.cal-day:hover:not(:disabled){background:var(--acid)}
+.cal-day.is-in{background:var(--acid)}
+.cal-day.is-end{background:var(--ink);color:var(--acid)}
+.cal-day.is-today{box-shadow:inset 0 -4px 0 var(--red)}
+.cal-day.is-off{background:repeating-linear-gradient(135deg,transparent 0 4px,var(--paper2) 4px 6px);color:#b9b6a6;cursor:not-allowed}
+.cal-foot{display:flex;align-items:stretch;border-top:0}
+.cal-read{flex:1;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 10px;font:600 11px var(--mono)}
+.cal-read i{font-style:normal;color:var(--red)}
+.cal-read em{font-style:normal;background:var(--ink);color:var(--acid);padding:2px 5px;font-size:10px}
+.cal-apply{flex:0 0 auto;border-left:var(--line);background:var(--acid);padding:0 14px}
+.cal-apply:disabled{background:var(--paper2);color:var(--mute);cursor:not-allowed}
+
+.pill-group[hidden]{display:none}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 </head>
 <body>
+<div id="loadBar" class="loadbar" hidden>LOADING LIVE DATA…</div>
 <div class="wrap">
 
   <header class="mast">
@@ -374,8 +421,9 @@ footer.note{border:var(--line);background:var(--ink);color:#d8d6c9;padding:18px 
     </div>
     <div class="mast-controls">
       <div class="ctl">
-        <div class="ctl-k">01 / RANGE</div>
-        <div class="pill-group" id="periodPills"></div>
+        <div class="ctl-k">01 / DATE RANGE <span id="liveBadge" class="live-badge"></span></div>
+        <div class="rangebar" id="rangeBar"></div>
+        <div class="pill-group" id="periodPills" hidden></div>
       </div>
       <div class="ctl">
         <div class="ctl-k">02 / SCOPE</div>
@@ -892,6 +940,141 @@ var __UIMod = (() => {
     host._draw = draw;
     draw();
   }
+  var pad = (n) => String(n).padStart(2, "0");
+  var iso = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  var parse = (s) => {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  };
+  var addDays = (s, n) => {
+    const d = parse(s);
+    d.setUTCDate(d.getUTCDate() + n);
+    return iso(d);
+  };
+  var DOW = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+  function openCalendar(anchor, o) {
+    closePop(false);
+    const { min, max } = o;
+    let start = o.from, end = o.to, picking = false;
+    let view = parse((end || max).slice(0, 8) + "01");
+    const node = el("div", "pop cal");
+    const presets = el("div", "cal-presets");
+    (o.presets || []).forEach((p) => {
+      const b = el("button", "cal-preset", esc(p.label));
+      b.type = "button";
+      b.addEventListener("click", () => {
+        closePop();
+        o.onApply(p.from, p.to);
+      });
+      presets.append(b);
+    });
+    const head = el("div", "cal-head");
+    const prev = el("button", "cal-nav", "\u25C2");
+    prev.type = "button";
+    prev.setAttribute("aria-label", "Previous month");
+    const next = el("button", "cal-nav", "\u25B8");
+    next.type = "button";
+    next.setAttribute("aria-label", "Next month");
+    const title = el("div", "cal-title");
+    head.append(prev, title, next);
+    const dow = el("div", "cal-dow", DOW.map((d) => `<span>${d}</span>`).join(""));
+    const grid = el("div", "cal-grid");
+    const read = el("div", "cal-read");
+    const foot = el("div", "cal-foot");
+    const apply = el("button", "btn cal-apply", "APPLY RANGE");
+    apply.type = "button";
+    foot.append(read, apply);
+    node.append(presets, head, dow, grid, foot);
+    const paint = () => {
+      title.textContent = `${MON[view.getUTCMonth()]} ${view.getUTCFullYear()}`;
+      grid.innerHTML = "";
+      const first = new Date(Date.UTC(view.getUTCFullYear(), view.getUTCMonth(), 1));
+      const lead = (first.getUTCDay() + 6) % 7;
+      const days = new Date(Date.UTC(view.getUTCFullYear(), view.getUTCMonth() + 1, 0)).getUTCDate();
+      for (let i = 0; i < lead; i++) grid.append(el("span", "cal-pad"));
+      for (let d = 1; d <= days; d++) {
+        const key = `${view.getUTCFullYear()}-${pad(view.getUTCMonth() + 1)}-${pad(d)}`;
+        const b = el("button", "cal-day", String(d));
+        b.type = "button";
+        b.dataset.d = key;
+        if (key < min || key > max) {
+          b.disabled = true;
+          b.classList.add("is-off");
+        }
+        const lo = start, hi = end || start;
+        if (lo && key >= lo && key <= hi) b.classList.add("is-in");
+        if (key === start || key === end) b.classList.add("is-end");
+        if (key === max) b.classList.add("is-today");
+        grid.append(b);
+      }
+      const n = start && end ? Math.round((parse(end) - parse(start)) / 864e5) + 1 : 0;
+      read.innerHTML = start ? `<b>${start}</b><i>\u2192</i><b>${end || "\u2026"}</b>${n ? `<em>${n} DAYS</em>` : ""}` : "PICK A START DAY";
+      apply.disabled = !(start && end);
+    };
+    prev.addEventListener("click", () => {
+      view.setUTCMonth(view.getUTCMonth() - 1);
+      paint();
+    });
+    next.addEventListener("click", () => {
+      view.setUTCMonth(view.getUTCMonth() + 1);
+      paint();
+    });
+    grid.addEventListener("click", (e) => {
+      const b = e.target.closest(".cal-day");
+      if (!b || b.disabled) return;
+      const d = b.dataset.d;
+      if (!picking) {
+        start = d;
+        end = null;
+        picking = true;
+      } else {
+        if (d < start) {
+          end = start;
+          start = d;
+        } else end = d;
+        picking = false;
+      }
+      paint();
+    });
+    apply.addEventListener("click", () => {
+      closePop();
+      o.onApply(start, end);
+    });
+    document.body.append(node);
+    anchor.setAttribute("aria-expanded", "true");
+    anchor.classList.add("is-open");
+    const reposition = () => {
+      const r = anchor.getBoundingClientRect();
+      const w = node.offsetWidth;
+      let left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+      node.style.left = left + "px";
+      const below = window.innerHeight - r.bottom;
+      if (below < node.offsetHeight + 12 && r.top > below) {
+        node.style.top = "";
+        node.style.bottom = window.innerHeight - r.top + "px";
+      } else {
+        node.style.bottom = "";
+        node.style.top = r.bottom + "px";
+      }
+    };
+    const outside = (e) => {
+      if (!node.contains(e.target) && !anchor.contains(e.target)) closePop(false);
+    };
+    const keys = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closePop();
+      }
+    };
+    pop = { node, anchor, outside, keys, reposition };
+    document.addEventListener("mousedown", outside, true);
+    document.addEventListener("keydown", keys, true);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    paint();
+    reposition();
+  }
   function confirmDialog(message, o = {}) {
     return new Promise((resolve) => {
       const back = el("div", "modal-back");
@@ -957,6 +1140,10 @@ var __UIMod = (() => {
       if (pop && pop.anchor === anchor) return closePop();
       openList(anchor, choices, current, onPick, { searchable: false, minWidth: 190, ...opts });
     },
+    calendar: openCalendar,
+    addDays,
+    iso,
+    parse,
     confirm: confirmDialog,
     closePopovers: closePop
   };
@@ -966,50 +1153,199 @@ var __UIMod = (() => {
 const UI = __UIMod.UI;
 (async function(){
 const DATA = JSON.parse(document.getElementById('dataStore').textContent);
-// Live overlay: when served over http(s) (the Vercel deployment), pull the sales/stock figures from the Metabase question through
-// the existing /api/dashboard-data route and lay them over the embedded rows by product name. Everything the Metabase question does
-// not carry (cost, tags, online split, launch month, sizes) keeps coming from the embedded snapshot. If the call fails for any reason the
-// page shows the snapshot unchanged and says so in the masthead.
-const LIVE = { state: 'snapshot', matched: 0, total: 0, from: '', to: '' };
-if (/^https?:$/.test(location.protocol) && !/[?&]live=0\b/.test(location.search)) {
+// Live data layer. On the deployed site every number comes straight from the Metabase question ("moemen's thing") through
+// /api/live-data, for any day range. Rules from the handoff document (exclusions, NOS, winter/new flags, duplicates summed, cost) are
+// applied here. Fields Metabase does not carry (Shopify online split, launch month, compare-at price, sizes) are read from the embedded
+// 7 Nov Shopify snapshot by product name and are labelled as such. Opened as a plain file, or if the API fails, the snapshot is shown as is.
+const LIVE = { state: 'snapshot', range: null };
+window.__live = LIVE;
+const SNAP_ROWS = DATA.periods[0].rows;
+const SNAP_BY = new Map(SNAP_ROWS.map((r) => [r.n, r]));
+const SNAP_BY_LC = new Map(SNAP_ROWS.map((r) => [r.n.trim().toLowerCase(), r]));
+const SNAP_FROM = '2026-09-01';
+const SNAP_TO = '2026-11-07';
+const EXCL_CATS = new Set(['All / Expenses', 'All / Deliveries', 'All / Saleable / PoS', 'All', 'Test Category', 'Gift Card', 'Special Package', 'Label', 'care Label', 'Hang Tag', 'Fabric', 'Apparel & Accessories', 'Socket', 'Elasticl']);
+const MIN_DAY = '2025-01-01';
+const MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtDay = (iso) => `${+iso.slice(8, 10)} ${MN[+iso.slice(5, 7) - 1]}`;
+const fmtDayY = (iso) => `${fmtDay(iso)} ${iso.slice(2, 4)}`;
+const cairoToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
+const TODAY = cairoToday();
+const proxy = (u) => (u ? `/api/img-proxy?url=${encodeURIComponent(u)}` : false);
+const normName = (n) => n.trim().toLowerCase();
+let tagSets = null;
+
+async function getJSON(url) {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(url.split('?')[0] + ' HTTP ' + res.status);
+  return res.json();
+}
+
+async function loadTags() {
+  if (tagSets) return tagSets;
+  const names = async (tag) => {
+    try { return new Set((await getJSON('/api/live-data?tag=' + encodeURIComponent(tag))).rows.map((r) => normName(r.product_name || ''))); }
+    catch (e) { return null; }
+  };
+  const [winter, fw27] = await Promise.all([names('winter'), names('FW27')]);
+  tagSets = { winter, fw27 };
+  return tagSets;
+}
+
+function buildRows(raw, tags, from, to) {
+  const byName = new Map();
+  for (const r of raw) {
+    const c = r.product_category || 'Uncategorized';
+    const n = r.product_name || 'Unknown Product';
+    const key = normName(n);
+    let a = byName.get(key);
+    if (!a) { a = { c, n, rev: 0, sold: 0, stock: 0, ads: 0, adr: 0, cost$: 0, price: null, img: null, cov: 0 }; byName.set(key, a); }
+    a.rev += Number(r.total_sales) || 0;
+    a.sold += Number(r.items_sold) || 0;
+    a.stock += Number(r.current_stock_level) || 0;
+    a.ads += Number(r.avg_units_per_day) || 0;
+    a.adr += Number(r.avg_daily_total_sales) || 0;
+    a.cost$ += Number(r.inventory_cost_value) || 0;
+    if (a.price == null && (r.item_price ?? r.true_unit_price) != null) a.price = Number(r.item_price ?? r.true_unit_price);
+    if (!a.img && r.image_url) a.img = r.image_url;
+  }
+  const onWindow = from <= SNAP_FROM && to >= SNAP_FROM; // the Shopify online split only exists for 1 Sep – 7 Nov
+  const rows = [];
+  for (const [key, a] of byName) {
+    if (EXCL_CATS.has(a.c) || /^test (product|#10)/i.test(a.n) || /shipping product/i.test(a.n)) continue;
+    const snap = SNAP_BY.get(a.n) || SNAP_BY_LC.get(key) || null;
+    const isNew = tags.fw27 ? tags.fw27.has(key) : !!(snap && snap.isNew);
+    const w = (tags.winter ? tags.winter.has(key) : false) || isNew || !!(snap && snap.w);
+    if (a.rev === 0 && a.sold === 0 && a.stock === 0 && !(isNew || (snap && snap.w))) continue;
+    const price = a.price != null ? a.price : snap ? snap.price : false;
+    const cost = (snap && snap.cost) || (a.stock > 0 && a.cost$ > 0 ? a.cost$ / a.stock : 0) || 0;
+    const row = {
+      c: a.c, n: a.n, rev: a.rev, sold: a.sold, stock: a.stock,
+      ads: a.ads, adr: a.adr, cov: a.ads > 0 ? a.stock / a.ads : 0,
+      price: price || false,
+      img: (snap && snap.img) || proxy(a.img) || false,
+      cost: cost || undefined, multiplier: cost && price ? price / cost : undefined,
+      onSale: !!(snap && snap.onSale), isNew, nos: /^(pjoys|kids pjoys)$/i.test(a.c), w,
+    };
+    if (snap && snap.regularPrice) row.regularPrice = snap.regularPrice;
+    if (snap) { row.lm = snap.lm; row.ls = snap.ls; if (onWindow) { row.onRev = snap.onRev; row.onSold = snap.onSold; row.onRaw = snap.onRaw; } }
+    rows.push(row);
+  }
+  rows.sort((x, y) => y.rev - x.rev);
+  return rows;
+}
+
+async function loadRange(from, to) {
+  const bar = document.getElementById('loadBar');
+  if (bar) bar.hidden = false;
   try {
+    const [main, tags] = await Promise.all([getJSON(`/api/live-data?from=${from}&to=${to}`), loadTags()]);
+    if (!main.rows || !main.rows.length) throw new Error('Metabase returned no rows for this range');
     const p0 = DATA.periods[0];
-    const cairo = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date()); // YYYY-MM-DD
-    const from = '2026-09-01';
-    const res = await fetch(`/api/dashboard-data?from=${from}&to=${cairo}`, { cache: 'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const j = await res.json();
-    const liveRows = (j.periods && j.periods[0] && j.periods[0].rows) || [];
-    if (!liveRows.length) throw new Error('empty');
-    const byName = new Map(liveRows.map((r) => [r.n, r]));
-    let matched = 0;
-    for (const r of p0.rows) {
-      const l = byName.get(r.n);
-      if (!l) continue;
-      matched++;
-      r.rev = l.rev; r.sold = l.sold; r.stock = l.stock; r.ads = l.ads; r.adr = l.adr; r.cov = l.cov;
-      if (l.price !== false && l.price != null) r.price = l.price;
-      if (l.img) r.img = l.img;
-    }
-    const days = Math.max(1, Math.round((Date.parse(cairo) - Date.parse(from)) / 864e5) + 1);
-    const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const fmt = (iso) => `${+iso.slice(8, 10)} ${MN[+iso.slice(5, 7) - 1]}`;
-    // the route reports Metabase's days_in_range, or a placeholder 95 when the column is missing
-    const mbDays = Math.round(Number(j.periods[0].days) || 0);
-    p0.days = mbDays && mbDays !== 95 ? mbDays : days;
-    p0.short = `${fmt(from)} – ${fmt(cairo)}`;
-    p0.label = `All products — ${fmt(from)} to ${fmt(cairo)} (${p0.days} days)`;
-    Object.assign(LIVE, { state: 'live', matched, total: p0.rows.length, from, to: cairo, metabaseRows: liveRows.length });
+    const days = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1);
+    p0.rows = buildRows(main.rows, tags, from, to);
+    p0.days = days;
+    p0.short = `${fmtDay(from)} – ${fmtDay(to)}`;
+    p0.label = `All products — ${fmtDay(from)} to ${fmtDay(to)} (${days} days)`;
+    LIVE.state = 'live'; LIVE.range = { from, to }; LIVE.metabaseRows = main.rows.length; LIVE.shown = p0.rows.length;
+    LIVE.matched = p0.rows.filter((r) => SNAP_BY.has(r.n)).length;
+    LIVE.tagsLive = !!(tags.winter && tags.fw27);
+    return true;
   } catch (e) {
-    LIVE.state = 'snapshot-fallback'; LIVE.error = String(e && e.message || e);
+    LIVE.error = String(e && e.message || e);
+    return false;
+  } finally {
+    if (bar) bar.hidden = true;
   }
 }
-window.__live = LIVE;
-const stamp = document.getElementById('mastDate');
-if (stamp) {
-  if (LIVE.state === 'live') { stamp.textContent = `LIVE · METABASE · ${DATA.periods[0].short.toUpperCase()}`; stamp.title = `${LIVE.matched} of ${LIVE.total} products matched the live Metabase data; the rest keep their snapshot figures.`; }
-  else if (LIVE.state === 'snapshot-fallback') { stamp.textContent = `SNAPSHOT · LIVE DATA UNAVAILABLE`; stamp.title = LIVE.error; }
+
+function paintStamp() {
+  const stamp = document.getElementById('mastDate');
+  const badge = document.getElementById('liveBadge');
+  const p0 = DATA.periods[0];
+  if (LIVE.state === 'live') {
+    if (stamp) { stamp.textContent = `LIVE · METABASE · ${p0.short.toUpperCase()}`; stamp.title = `${LIVE.metabaseRows} Metabase rows, ${LIVE.shown} products shown. ${LIVE.matched} also found in the 7 Nov Shopify snapshot (launch month, online split, sizes).`; }
+    if (badge) badge.textContent = '● LIVE';
+    const sub = document.querySelector('.mast-sub');
+    const rows = p0.rows;
+    if (sub) sub.textContent = `${rows.length.toLocaleString('en-US')} products · ${rows.filter((r) => r.w).length.toLocaleString('en-US')} winter · ${rows.filter((r) => r.isNew).length} winter new collection · sales ${fmtDay(LIVE.range.from)} to ${fmtDay(LIVE.range.to)} (${p0.days} days) · hover any product name for a quick image preview`;
+    const foot = document.querySelector('footer.note');
+    if (foot) {
+      if (!foot.dataset.orig) foot.dataset.orig = foot.textContent;
+      foot.textContent = foot.dataset.orig.replace('1 Sep to 7 Nov', `${fmtDay(LIVE.range.from)} to ${fmtDay(LIVE.range.to)}`).replace(/Where Shopify shows more/, 'Online split, launch month and sizes come from the 7 Nov Shopify snapshot (online split only when the range starts on or before 1 Sep). Where Shopify shows more');
+    }
+  } else if (LIVE.state === 'snapshot-fallback') {
+    if (stamp) { stamp.textContent = 'SNAPSHOT · LIVE DATA UNAVAILABLE'; stamp.title = LIVE.error || ''; }
+    if (badge) badge.textContent = '○ SNAPSHOT';
+  }
 }
+
+function presets() {
+  const d = (n) => UI.addDays(TODAY, -n);
+  const mtd = TODAY.slice(0, 8) + '01';
+  return [
+    { label: 'LAST 7 DAYS', from: d(6), to: TODAY },
+    { label: 'LAST 14 DAYS', from: d(13), to: TODAY },
+    { label: 'LAST 30 DAYS', from: d(29), to: TODAY },
+    { label: 'LAST 90 DAYS', from: d(89), to: TODAY },
+    { label: 'THIS MONTH', from: mtd, to: TODAY },
+    { label: 'SINCE 1 SEP', from: SNAP_FROM, to: TODAY },
+  ];
+}
+
+function drawRangeBar() {
+  const host = document.getElementById('rangeBar');
+  if (!host) return;
+  const r = LIVE.range;
+  host.innerHTML = '';
+  const live = LIVE.state === 'live';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'range-btn';
+  btn.setAttribute('aria-haspopup', 'dialog');
+  const days = DATA.periods[0].days;
+  btn.innerHTML = live
+    ? `<span class="range-k">FROM</span><b>${fmtDayY(r.from)}</b><i>→</i><span class="range-k">TO</span><b>${fmtDayY(r.to)}</b><em>${days} DAYS</em><i class="caret"></i>`
+    : `<b>${DATA.periods[0].short.toUpperCase()}</b><em>${days} DAYS</em>`;
+  btn.disabled = !live;
+  host.append(btn);
+  if (!live) return;
+  const open = () => UI.calendar(btn, { min: MIN_DAY, max: TODAY, from: r.from, to: r.to, presets: presets(), onApply: (f, t) => applyRange(f, t) });
+  btn.addEventListener('click', () => { open(); });
+  const quick = document.createElement('div');
+  quick.className = 'range-quick';
+  presets().forEach((p) => {
+    const q = document.createElement('button');
+    q.type = 'button';
+    q.className = 'range-q' + (p.from === r.from && p.to === r.to ? ' is-on' : '');
+    q.textContent = p.label.replace('LAST ', '').replace(' DAYS', 'D').replace('SINCE 1 SEP', 'SEP 1+').replace('THIS MONTH', 'MTD');
+    q.title = p.label;
+    q.addEventListener('click', () => applyRange(p.from, p.to));
+    quick.append(q);
+  });
+  host.append(quick);
+}
+
+async function applyRange(from, to) {
+  const prev = LIVE.range;
+  if (prev && prev.from === from && prev.to === to) return;
+  const ok = await loadRange(from, to);
+  if (!ok) {
+    const st = document.getElementById('exportStatus');
+    if (st) st.textContent = 'Could not load that range from Metabase: ' + LIVE.error;
+    LIVE.state = prev ? 'live' : 'snapshot-fallback';
+  }
+  paintStamp(); drawRangeBar();
+  if (window.__dash) window.__dash.render();
+}
+window.__applyRange = applyRange;
+
+if (/^https?:$/.test(location.protocol) && !/[?&]live=0\b/.test(location.search)) {
+  const ok = await loadRange(SNAP_FROM, TODAY);
+  if (!ok) LIVE.state = 'snapshot-fallback';
+}
+paintStamp();
+drawRangeBar();
 
 const RAW_PERIODS = DATA.periods; // chronological: [{id,label,short,days,status,rows:[...]}]
 
