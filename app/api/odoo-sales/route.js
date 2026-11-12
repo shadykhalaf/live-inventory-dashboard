@@ -93,6 +93,36 @@ export async function GET(request) {
       for (const m of ['sale.report', 'report.pos.order']) { const fg = await rpc(sid, m, 'fields_get', [], { attributes: ['string', 'type'] }); out[m] = Object.fromEntries(Object.entries(fg).map(([k, v]) => [k, v.type])) }
       return NextResponse.json(out)
     }
+    // Per-product sales straight from Odoo, in the same row shape the dashboard already reads, reconciled to Odoo's order totals.
+    if (sp.get('lines')) {
+      const dom = [['date', '>=', lo], ['date', '<=', hi], ['state', 'in', ['sale', 'done', 'paid', 'invoiced']]]
+      const g = await rpc(sid, 'sale.report', 'read_group', [dom, ['price_total:sum', 'product_uom_qty:sum'], ['product_tmpl_id', 'categ_id', 'state']], { lazy: false })
+      const ONLINE = new Set(['sale'])
+      const by = new Map()
+      let repOn = 0, repAll = 0
+      for (const r of g) {
+        const name = (r.product_tmpl_id && r.product_tmpl_id[1]) || '(no product)'
+        const cat = (r.categ_id && r.categ_id[1]) || ''
+        const online = ONLINE.has(r.state)
+        const isDisc = /per point|discount|reward|loyalty|coupon/i.test(name)
+        const isShip = /shipping/i.test(name)
+        const lt = isShip ? 'Shipping' : isDisc ? 'Discount' : 'Product'
+        const key = lt === 'Product' ? name : ''
+        const k = lt + '|' + key
+        const o = by.get(k) || { line_type: lt, name: key, category: cat, rev: 0, qty: 0, on_rev: 0, on_qty: 0 }
+        o.rev += r.price_total || 0; o.qty += r.product_uom_qty || 0
+        if (online) { o.on_rev += r.price_total || 0; o.on_qty += r.product_uom_qty || 0 }
+        by.set(k, o)
+        repAll += r.price_total || 0; if (online) repOn += r.price_total || 0
+      }
+      const so = await rpc(sid, 'sale.order', 'read_group', [[['date_order', '>=', lo], ['date_order', '<=', hi], ['state', 'in', ['sale', 'done']]], ['amount_total:sum'], ['state']], { lazy: false })
+      const po = await rpc(sid, 'pos.order', 'read_group', [[['date_order', '>=', lo], ['date_order', '<=', hi], ['state', 'in', ['paid', 'done', 'invoiced']]], ['amount_total:sum'], ['state']], { lazy: false })
+      const onT = so.reduce((a, x) => a + (x.amount_total || 0), 0), stT = po.reduce((a, x) => a + (x.amount_total || 0), 0)
+      const rows = [...by.values()]
+      const diffOn = onT - repOn, diffAll = onT + stT - repAll
+      if (Math.abs(diffAll) > 0.005 || Math.abs(diffOn) > 0.005) rows.push({ line_type: 'Other', name: '', category: '', rev: diffAll, qty: 0, on_rev: diffOn, on_qty: 0 })
+      return NextResponse.json({ from: f, to: t, source: 'odoo', orders: { online: onT, pos: stT, total: onT + stT, online_orders: so.reduce((a, x) => a + x.__count, 0), pos_orders: po.reduce((a, x) => a + x.__count, 0) }, count: rows.length, rows })
+    }
     if (sp.get('orders')) {
       const so = await rpc(sid, 'sale.order', 'read_group', [[['date_order', '>=', lo], ['date_order', '<=', hi]], ['amount_total:sum', 'amount_untaxed:sum', 'amount_tax:sum'], ['state']], { lazy: false })
       out.sale_orders = so.map((g) => ({ k: g.state, n: g.__count, total: g.amount_total, untaxed: g.amount_untaxed, tax: g.amount_tax }))
