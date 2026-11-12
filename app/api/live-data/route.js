@@ -16,6 +16,17 @@ export async function GET(request) {
     const apiKey = process.env.METABASE_API_KEY
     const headers = { 'x-api-key': apiKey }
 
+    // Diagnostics (read-only): ?list=1 lists saved questions; ?def=ID returns a question's definition.
+    if (sp.get('list')) {
+      const r = await fetch(`${siteUrl}/api/card`, { headers })
+      const all = r.ok ? await r.json() : []
+      return NextResponse.json({ cards: all.map((c) => ({ id: c.id, name: c.name, type: c.display, collection: c.collection?.name })) })
+    }
+    if (sp.get('def')) {
+      const r = await fetch(`${siteUrl}/api/card/${encodeURIComponent(sp.get('def'))}`, { headers })
+      const c = r.ok ? await r.json() : {}
+      return NextResponse.json({ id: c.id, name: c.name, query: c.dataset_query, params: (c.parameters || []).map((p) => ({ name: p.name, slug: p.slug, type: p.type })) })
+    }
     const cardRes = await fetch(`${siteUrl}/api/card/${questionId}`, { headers })
     if (!cardRes.ok) return NextResponse.json({ error: 'card lookup failed', status: cardRes.status }, { status: 502 })
     const card = await cardRes.json()
