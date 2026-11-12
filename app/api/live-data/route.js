@@ -22,6 +22,11 @@ export async function GET(request) {
       const all = r.ok ? await r.json() : []
       return NextResponse.json({ cards: all.map((c) => ({ id: c.id, name: c.name, type: c.display, collection: c.collection?.name })) })
     }
+    if (sp.get('api') && /^\/api\/(dashboard|field|table)(\/[0-9]+)?(\/query_metadata)?$/.test(sp.get('api'))) {
+      const r = await fetch(`${siteUrl}${sp.get('api')}`, { headers })
+      const j = r.ok ? await r.json() : { status: r.status }
+      return NextResponse.json(j)
+    }
     if (sp.get('def')) {
       const r = await fetch(`${siteUrl}/api/card/${encodeURIComponent(sp.get('def'))}`, { headers })
       const c = r.ok ? await r.json() : {}
