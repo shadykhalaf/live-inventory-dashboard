@@ -27,6 +27,22 @@ export async function GET(request) {
       const j = r.ok ? await r.json() : { status: r.status }
       return NextResponse.json(j)
     }
+    // Totals exactly as the Metabase "Main Dashboard" computes them (same questions, same date filter).
+    if (sp.get('summary')) {
+      const dash = await (await fetch(`${siteUrl}/api/dashboard/2`, { headers })).json()
+      const dp = (dash.parameters || []).find((p) => p.slug === 'date')
+      const ids = { total: 75, channel: 77, store: 72, category: 177 }
+      const out = {}
+      for (const [k, cid] of Object.entries(ids)) {
+        const dc = (dash.dashcards || []).find((d) => d.card_id === cid)
+        if (!dc || !dp) { out[k] = { error: 'not on dashboard' }; continue }
+        const body = { parameters: sp.get('from') && sp.get('to') ? [{ id: dp.id, type: dp.type, value: `${sp.get('from')}~${sp.get('to')}`, target: undefined }] : [] }
+        const r = await fetch(`${siteUrl}/api/dashboard/2/dashcard/${dc.id}/card/${cid}/query`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const j = await r.json()
+        out[k] = r.ok ? { cols: (j.data?.cols || []).map((c) => c.name), rows: j.data?.rows } : { status: r.status, detail: JSON.stringify(j).slice(0, 300) }
+      }
+      return NextResponse.json(out)
+    }
     if (sp.get('def')) {
       const r = await fetch(`${siteUrl}/api/card/${encodeURIComponent(sp.get('def'))}`, { headers })
       const c = r.ok ? await r.json() : {}
