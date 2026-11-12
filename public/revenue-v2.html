@@ -1219,8 +1219,8 @@ function buildRows(raw, tags, from, to, sales) {
     for (const r of sales) {
       if (r.line_type === 'Product') live.set(normName(r.name || ''), r);
       else {
-        adj = adj || { disc: { rev: 0, on: 0 }, ship: { rev: 0, on: 0 } };
-        const k = r.line_type === 'Shipping' ? 'ship' : 'disc';
+        adj = adj || { disc: { rev: 0, on: 0 }, ship: { rev: 0, on: 0 }, oth: { rev: 0, on: 0 } };
+        const k = r.line_type === 'Shipping' ? 'ship' : r.line_type === 'Other' ? 'oth' : 'disc';
         adj[k].rev += Number(r.rev) || 0; adj[k].on += Number(r.on_rev) || 0;
       }
     }
@@ -1240,7 +1240,7 @@ function buildRows(raw, tags, from, to, sales) {
   const rows = [];
   for (const [key, a] of byName) {
     if (EXCL_CATS.has(a.c) || /^test (product|#10)/i.test(a.n) || /shipping product/i.test(a.n)) {
-      if (sales && (a.rev || a.on)) { adj = adj || { disc: { rev: 0, on: 0 }, ship: { rev: 0, on: 0 } }; adj.ex = adj.ex || { rev: 0, on: 0 }; adj.ex.rev += a.rev; adj.ex.on += a.on || 0; }
+      if (sales && (a.rev || a.on)) { adj = adj || { disc: { rev: 0, on: 0 }, ship: { rev: 0, on: 0 }, oth: { rev: 0, on: 0 } }; adj.ex = adj.ex || { rev: 0, on: 0 }; adj.ex.rev += a.rev; adj.ex.on += a.on || 0; }
       continue;
     }
     const snap = SNAP_BY.get(a.n) || SNAP_BY_LC.get(key) || null;
@@ -1268,6 +1268,7 @@ function buildRows(raw, tags, from, to, sales) {
     const mk = (n, o) => ({ c: 'Adjustments', n, rev: o.rev, sold: 0, stock: 0, ads: 0, adr: o.rev / days, cov: 0, price: false, img: false, onSale: false, isNew: false, nos: false, w: false, adj: true, exact: true, onRev: o.on, onSold: 0, onRaw: o.on });
     if (adj.disc.rev) rows.push(mk('Discounts & loyalty points (no product)', adj.disc));
     if (adj.ship.rev) rows.push(mk('Shipping charged (no product)', adj.ship));
+    if (adj.oth && adj.oth.rev) rows.push(mk('Odoo order totals minus product lines (rounding, other lines)', adj.oth));
     if (adj.ex && adj.ex.rev) rows.push(mk('Excluded categories: gift cards, test, packaging (no product)', adj.ex));
   }
   return rows;
@@ -1277,7 +1278,7 @@ async function loadRange(from, to) {
   const bar = document.getElementById('loadBar');
   if (bar) bar.hidden = false;
   try {
-    const [main, tags, sales] = await Promise.all([getJSON(`/api/live-data?from=${from}&to=${to}`), loadTags(), getJSON(`/api/live-data?sales=1&from=${from}&to=${to}`).then((j) => j.rows, () => null)]);
+    const [main, tags, sales] = await Promise.all([getJSON(`/api/live-data?from=${from}&to=${to}`), loadTags(), getJSON(`/api/odoo-sales?lines=1&from=${from}&to=${to}`).then((j) => { LIVE.salesSrc = 'odoo'; LIVE.odooOrders = j.orders; return j.rows; }).catch(() => getJSON(`/api/live-data?sales=1&from=${from}&to=${to}`).then((j) => { LIVE.salesSrc = 'metabase'; return j.rows; }, () => null))]);
     if (!main.rows || !main.rows.length) throw new Error('Metabase returned no rows for this range');
     const p0 = DATA.periods[0];
     const days = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1);
