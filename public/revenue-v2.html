@@ -1259,13 +1259,13 @@ function buildRows(raw, tags, from, to, sales) {
     };
     if (snap && snap.regularPrice) row.regularPrice = snap.regularPrice;
     if (snap) { row.lm = snap.lm; row.ls = snap.ls; if (onWindow) { row.onRev = snap.onRev; row.onSold = snap.onSold; row.onRaw = snap.onRaw; } }
-    if (sales) { row.onRev = a.on || 0; row.onSold = a.onq || 0; row.onRaw = a.on || 0; }
+    if (sales) { row.onRev = a.on || 0; row.onSold = a.onq || 0; row.onRaw = a.on || 0; row.exact = true; }
     rows.push(row);
   }
   rows.sort((x, y) => y.rev - x.rev);
   // Lines Metabase counts in Total Sales that belong to no product: loyalty-point and discount redemptions (negative), and shipping charged.
   if (adj) {
-    const mk = (n, o) => ({ c: 'Adjustments', n, rev: o.rev, sold: 0, stock: 0, ads: 0, adr: o.rev / days, cov: 0, price: false, img: false, onSale: false, isNew: false, nos: false, w: false, adj: true, onRev: o.on, onSold: 0, onRaw: o.on });
+    const mk = (n, o) => ({ c: 'Adjustments', n, rev: o.rev, sold: 0, stock: 0, ads: 0, adr: o.rev / days, cov: 0, price: false, img: false, onSale: false, isNew: false, nos: false, w: false, adj: true, exact: true, onRev: o.on, onSold: 0, onRaw: o.on });
     if (adj.disc.rev) rows.push(mk('Discounts & loyalty points (no product)', adj.disc));
     if (adj.ship.rev) rows.push(mk('Shipping charged (no product)', adj.ship));
     if (adj.ex && adj.ex.rev) rows.push(mk('Excluded categories: gift cards, test, packaging (no product)', adj.ex));
@@ -1477,6 +1477,8 @@ function chanVals(r){
   const u = state.chanMetric==='units';
   const tot = u ? r.sold : r.rev;
   let on = u ? (r.onSold||0) : (r.onRev||0);
+  // Live rows carry the exact channel split from the order data (returns and discount lines included), so it is not clamped.
+  if(r.exact){ return {tot, on, st: tot-on, pct: tot>0 ? Math.max(0,Math.min(100,on/tot*100)) : null}; }
   on = Math.max(0, Math.min(on, tot>0?tot:0));
   return {tot, on, st: Math.max(0, tot-on), pct: tot>0 ? on/tot*100 : null};
 }
