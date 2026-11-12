@@ -71,7 +71,7 @@ const rpc = async (sid, model, method, args, kwargs = {}) => {
     body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: { model, method, args, kwargs } }),
   })
   const j = await r.json()
-  if (j.error) throw new Error(JSON.stringify(j.error.data?.message || j.error.message).slice(0, 300))
+  if (j.error) throw new Error(`${model}.${method} HTTP ${r.status}: ` + JSON.stringify({ n: j.error.data?.name, m: j.error.data?.message || j.error.message }).slice(0, 300))
   return j.result
 }
 // Cairo day -> UTC bounds (Cairo is UTC+2 in winter, UTC+3 in summer; Egypt observes DST)
