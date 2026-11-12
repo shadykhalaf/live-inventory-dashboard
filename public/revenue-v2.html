@@ -1192,8 +1192,9 @@ async function loadTags() {
   return tagSets;
 }
 
-function buildRows(raw, tags, from, to) {
+function buildRows(raw, tags, from, to, sales) {
   const byName = new Map();
+  const days = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1);
   for (const r of raw) {
     const c = r.product_category || 'Uncategorized';
     const n = r.product_name || 'Unknown Product';
@@ -1209,10 +1210,39 @@ function buildRows(raw, tags, from, to) {
     if (a.price == null && (r.item_price ?? r.true_unit_price) != null) a.price = Number(r.item_price ?? r.true_unit_price);
     if (!a.img && r.image_url) a.img = r.image_url;
   }
-  const onWindow = from <= SNAP_FROM && to >= SNAP_FROM; // the Shopify online split only exists for 1 Sep – 7 Nov
+  // Sales as Metabase's Main Dashboard counts them (Cairo days, not cancelled, per product, with the real Shopify Web split).
+  // Metabase question 160 stays the source for stock, cost, price, images and tags; it drops the discount / loyalty lines that have
+  // no SKU, which is why its revenue ran roughly 10% above the dashboard.
+  const live = new Map();
+  let adj = null;
+  if (sales) {
+    for (const r of sales) {
+      if (r.line_type === 'Product') live.set(normName(r.name || ''), r);
+      else {
+        adj = adj || { disc: { rev: 0, on: 0 }, ship: { rev: 0, on: 0 } };
+        const k = r.line_type === 'Shipping' ? 'ship' : 'disc';
+        adj[k].rev += Number(r.rev) || 0; adj[k].on += Number(r.on_rev) || 0;
+      }
+    }
+    for (const [key, a] of byName) {
+      const l = live.get(key);
+      a.rev = l ? Number(l.rev) || 0 : 0; a.sold = l ? Number(l.qty) || 0 : 0;
+      a.on = l ? Number(l.on_rev) || 0 : 0; a.onq = l ? Number(l.on_qty) || 0 : 0;
+      a.ads = a.sold / days; a.adr = a.rev / days;
+      if (l) l.used = true;
+    }
+    for (const [key, l] of live) {
+      if (l.used) continue;
+      byName.set(key, { c: l.category || 'Uncategorized', n: l.name, rev: Number(l.rev) || 0, sold: Number(l.qty) || 0, stock: 0, ads: (Number(l.qty) || 0) / days, adr: (Number(l.rev) || 0) / days, cost$: 0, price: null, img: null, cov: 0, on: Number(l.on_rev) || 0, onq: Number(l.on_qty) || 0 });
+    }
+  }
+  const onWindow = !sales && from <= SNAP_FROM && to >= SNAP_FROM; // snapshot online split only if live sales are unavailable
   const rows = [];
   for (const [key, a] of byName) {
-    if (EXCL_CATS.has(a.c) || /^test (product|#10)/i.test(a.n) || /shipping product/i.test(a.n)) continue;
+    if (EXCL_CATS.has(a.c) || /^test (product|#10)/i.test(a.n) || /shipping product/i.test(a.n)) {
+      if (sales && (a.rev || a.on)) { adj = adj || { disc: { rev: 0, on: 0 }, ship: { rev: 0, on: 0 } }; adj.ex = adj.ex || { rev: 0, on: 0 }; adj.ex.rev += a.rev; adj.ex.on += a.on || 0; }
+      continue;
+    }
     const snap = SNAP_BY.get(a.n) || SNAP_BY_LC.get(key) || null;
     const isNew = tags.fw27 ? tags.fw27.has(key) : !!(snap && snap.isNew);
     const w = (tags.winter ? tags.winter.has(key) : false) || isNew || !!(snap && snap.w);
@@ -1229,9 +1259,17 @@ function buildRows(raw, tags, from, to) {
     };
     if (snap && snap.regularPrice) row.regularPrice = snap.regularPrice;
     if (snap) { row.lm = snap.lm; row.ls = snap.ls; if (onWindow) { row.onRev = snap.onRev; row.onSold = snap.onSold; row.onRaw = snap.onRaw; } }
+    if (sales) { row.onRev = a.on || 0; row.onSold = a.onq || 0; row.onRaw = a.on || 0; }
     rows.push(row);
   }
   rows.sort((x, y) => y.rev - x.rev);
+  // Lines Metabase counts in Total Sales that belong to no product: loyalty-point and discount redemptions (negative), and shipping charged.
+  if (adj) {
+    const mk = (n, o) => ({ c: 'Adjustments', n, rev: o.rev, sold: 0, stock: 0, ads: 0, adr: o.rev / days, cov: 0, price: false, img: false, onSale: false, isNew: false, nos: false, w: false, adj: true, onRev: o.on, onSold: 0, onRaw: o.on });
+    if (adj.disc.rev) rows.push(mk('Discounts & loyalty points (no product)', adj.disc));
+    if (adj.ship.rev) rows.push(mk('Shipping charged (no product)', adj.ship));
+    if (adj.ex && adj.ex.rev) rows.push(mk('Excluded categories: gift cards, test, packaging (no product)', adj.ex));
+  }
   return rows;
 }
 
@@ -1239,11 +1277,12 @@ async function loadRange(from, to) {
   const bar = document.getElementById('loadBar');
   if (bar) bar.hidden = false;
   try {
-    const [main, tags] = await Promise.all([getJSON(`/api/live-data?from=${from}&to=${to}`), loadTags()]);
+    const [main, tags, sales] = await Promise.all([getJSON(`/api/live-data?from=${from}&to=${to}`), loadTags(), getJSON(`/api/live-data?sales=1&from=${from}&to=${to}`).then((j) => j.rows, () => null)]);
     if (!main.rows || !main.rows.length) throw new Error('Metabase returned no rows for this range');
     const p0 = DATA.periods[0];
     const days = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1);
-    p0.rows = buildRows(main.rows, tags, from, to);
+    p0.rows = buildRows(main.rows, tags, from, to, sales);
+    LIVE.sales = !!sales;
     p0.days = days;
     p0.short = `${fmtDay(from)} – ${fmtDay(to)}`;
     p0.label = `All products — ${fmtDay(from)} to ${fmtDay(to)} (${days} days)`;
