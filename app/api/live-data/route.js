@@ -27,6 +27,24 @@ export async function GET(request) {
       const j = r.ok ? await r.json() : { status: r.status }
       return NextResponse.json(j)
     }
+    // Sales exactly as the Metabase Main Dashboard counts them (detailed_orders, Cairo days, not cancelled/draft):
+    // per product revenue + units (total and Shopify Web), plus the discount / loyalty / shipping lines that have no product.
+    if (sp.get('sales')) {
+      const f = sp.get('from'), t = sp.get('to')
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '') || !/^\d{4}-\d{2}-\d{2}$/.test(t || '')) return NextResponse.json({ error: 'from/to required (YYYY-MM-DD)' }, { status: 400 })
+      const query = `SELECT line_type, IF(line_type = 'Product', TRIM(product_name), '') AS name, ANY_VALUE(product_type) AS category,
+        SUM(revenue) AS rev, SUM(quantity) AS qty,
+        SUM(IF(store_location = 'Shopify Web', revenue, 0)) AS on_rev, SUM(IF(store_location = 'Shopify Web', quantity, 0)) AS on_qty
+        FROM \`dark-bit-489910-q1.odoo_metrics.detailed_orders\`
+        WHERE order_status NOT IN ('cancel', 'draft') AND DATE(sale_date, 'Africa/Cairo') BETWEEN DATE '${f}' AND DATE '${t}'
+        GROUP BY line_type, name`
+      const r = await fetch(`${siteUrl}/api/dataset`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ database: 2, type: 'native', native: { query } }) })
+      const j = await r.json()
+      if (!r.ok || j.error) return NextResponse.json({ error: 'sales query failed', detail: String(j.error || r.status).slice(0, 300) }, { status: 502 })
+      const cols = (j.data?.cols || []).map((c) => c.name)
+      const rows = (j.data?.rows || []).map((row) => Object.fromEntries(cols.map((c, i) => [c, row[i]])))
+      return NextResponse.json({ from: f, to: t, count: rows.length, rows }, { headers: { 'Cache-Control': 's-maxage=60, stale-while-revalidate=300' } })
+    }
     // Totals exactly as the Metabase "Main Dashboard" computes them (same questions, same date filter).
     if (sp.get('summary')) {
       const dash = await (await fetch(`${siteUrl}/api/dashboard/2`, { headers })).json()
