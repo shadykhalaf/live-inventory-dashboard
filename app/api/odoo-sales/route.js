@@ -64,7 +64,7 @@ async function getOdooSession() {
 
 const ODOO = 'https://in-your-shoe.odoo.com'
 const rpc = async (sid, model, method, args, kwargs = {}) => {
-  if (!['read_group', 'fields_get'].includes(method) || !['sale.report', 'report.pos.order'].includes(model)) throw new Error('not allowed')
+  if (!['read_group', 'fields_get'].includes(method) || !['sale.report', 'report.pos.order', 'sale.order', 'pos.order'].includes(model)) throw new Error('not allowed')
   const r = await fetch(`${ODOO}/web/dataset/call_kw/${model}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: `session_id=${sid}` },
@@ -91,6 +91,13 @@ export async function GET(request) {
     const out = { from: f, to: t, utc: [lo, hi] }
     if (sp.get('fields')) {
       for (const m of ['sale.report', 'report.pos.order']) { const fg = await rpc(sid, m, 'fields_get', [], { attributes: ['string', 'type'] }); out[m] = Object.fromEntries(Object.entries(fg).map(([k, v]) => [k, v.type])) }
+      return NextResponse.json(out)
+    }
+    if (sp.get('orders')) {
+      const so = await rpc(sid, 'sale.order', 'read_group', [[['date_order', '>=', lo], ['date_order', '<=', hi]], ['amount_total:sum', 'amount_untaxed:sum', 'amount_tax:sum'], ['state']], { lazy: false })
+      out.sale_orders = so.map((g) => ({ k: g.state, n: g.__count, total: g.amount_total, untaxed: g.amount_untaxed, tax: g.amount_tax }))
+      const po = await rpc(sid, 'pos.order', 'read_group', [[['date_order', '>=', lo], ['date_order', '<=', hi]], ['amount_total:sum', 'amount_tax:sum'], ['state']], { lazy: false })
+      out.pos_orders = po.map((g) => ({ k: g.state, n: g.__count, total: g.amount_total, tax: g.amount_tax }))
       return NextResponse.json(out)
     }
     const gb = sp.get('by') || 'state'
