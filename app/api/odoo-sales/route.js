@@ -64,7 +64,7 @@ async function getOdooSession() {
 
 const ODOO = 'https://in-your-shoe.odoo.com'
 const rpc = async (sid, model, method, args, kwargs = {}) => {
-  if (!['read_group', 'fields_get'].includes(method) || !['sale.report', 'pos.report'].includes(model)) throw new Error('not allowed')
+  if (!['read_group', 'fields_get'].includes(method) || !['sale.report', 'report.pos.order'].includes(model)) throw new Error('not allowed')
   const r = await fetch(`${ODOO}/web/dataset/call_kw/${model}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: `session_id=${sid}` },
@@ -90,13 +90,13 @@ export async function GET(request) {
     const [lo, hi] = bounds(f, t)
     const out = { from: f, to: t, utc: [lo, hi] }
     if (sp.get('fields')) {
-      for (const m of ['sale.report', 'pos.report']) { const fg = await rpc(sid, m, 'fields_get', [], { attributes: ['string', 'type'] }); out[m] = Object.fromEntries(Object.entries(fg).map(([k, v]) => [k, v.type])) }
+      for (const m of ['sale.report', 'report.pos.order']) { const fg = await rpc(sid, m, 'fields_get', [], { attributes: ['string', 'type'] }); out[m] = Object.fromEntries(Object.entries(fg).map(([k, v]) => [k, v.type])) }
       return NextResponse.json(out)
     }
     const gb = sp.get('by') || 'state'
     const sale = await rpc(sid, 'sale.report', 'read_group', [[['date', '>=', lo], ['date', '<=', hi]], ['price_total:sum', 'price_subtotal:sum', 'product_uom_qty:sum'], [gb]], { lazy: false })
     out.sale = sale.map((g) => ({ k: g[gb], n: g.__count, total: g.price_total, sub: g.price_subtotal, qty: g.product_uom_qty }))
-    const pos = await rpc(sid, 'pos.report', 'read_group', [[['date', '>=', lo], ['date', '<=', hi]], ['price_total:sum', 'price_sub_total:sum', 'product_qty:sum'], [sp.get('posby') || 'state']], { lazy: false })
+    const pos = await rpc(sid, 'report.pos.order', 'read_group', [[['date', '>=', lo], ['date', '<=', hi]], ['price_total:sum', 'price_sub_total:sum', 'product_qty:sum'], [sp.get('posby') || 'state']], { lazy: false })
     out.pos = pos.map((g) => ({ k: g[sp.get('posby') || 'state'], n: g.__count, total: g.price_total, sub: g.price_sub_total, qty: g.product_qty }))
     return NextResponse.json(out)
   } catch (e) {
