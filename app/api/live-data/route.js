@@ -27,14 +27,14 @@ export async function GET(request) {
       const j = r.ok ? await r.json() : { status: r.status }
       return NextResponse.json(j)
     }
-    // Sales exactly as the Metabase Main Dashboard counts them (detailed_orders, Cairo days, not cancelled/draft):
+    // Sales exactly as the Metabase Main Dashboard counts them ("Total Sales" = revenue + tax, the figure Odoo's dashboard shows too) (detailed_orders, Cairo days, not cancelled/draft):
     // per product revenue + units (total and Shopify Web), plus the discount / loyalty / shipping lines that have no product.
     if (sp.get('sales')) {
       const f = sp.get('from'), t = sp.get('to')
       if (!/^\d{4}-\d{2}-\d{2}$/.test(f || '') || !/^\d{4}-\d{2}-\d{2}$/.test(t || '')) return NextResponse.json({ error: 'from/to required (YYYY-MM-DD)' }, { status: 400 })
       const query = `SELECT line_type, IF(line_type = 'Product', TRIM(product_name), '') AS name, ANY_VALUE(product_type) AS category,
-        SUM(revenue) AS rev, SUM(quantity) AS qty,
-        SUM(IF(store_location = 'Shopify Web', revenue, 0)) AS on_rev, SUM(IF(store_location = 'Shopify Web', quantity, 0)) AS on_qty
+        SUM(revenue + COALESCE(tax_amount, 0)) AS rev, SUM(revenue) AS rev_ex_tax, SUM(quantity) AS qty,
+        SUM(IF(store_location = 'Shopify Web', revenue + COALESCE(tax_amount, 0), 0)) AS on_rev, SUM(IF(store_location = 'Shopify Web', quantity, 0)) AS on_qty
         FROM \`dark-bit-489910-q1.odoo_metrics.detailed_orders\`
         WHERE order_status NOT IN ('cancel', 'draft') AND DATE(sale_date, 'Africa/Cairo') BETWEEN DATE '${f}' AND DATE '${t}'
         GROUP BY line_type, name`
