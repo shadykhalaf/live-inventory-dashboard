@@ -95,8 +95,9 @@ export async function GET(request) {
     }
     // Per-product sales straight from Odoo, in the same row shape the dashboard already reads, reconciled to Odoo's order totals.
     if (sp.get('lines')) {
-      const dom = [['date', '>=', lo], ['date', '<=', hi], ['state', 'in', ['sale', 'done', 'paid', 'invoiced']]]
-      const g = await rpc(sid, 'sale.report', 'read_group', [dom, ['price_total:sum', 'product_uom_qty:sum'], ['product_tmpl_id', 'categ_id', 'state']], { lazy: false })
+      const dom = [['date', '>=', lo], ['date', '<=', hi]]
+      const OKS = new Set(['sale', 'done', 'paid', 'invoiced'])
+      const g = (await rpc(sid, 'sale.report', 'read_group', [dom, ['price_total:sum', 'product_uom_qty:sum'], ['product_tmpl_id', 'categ_id', 'state']], { lazy: false })).filter((r) => OKS.has(r.state))
       const ONLINE = new Set(['sale'])
       const by = new Map()
       let repOn = 0, repAll = 0
@@ -115,8 +116,8 @@ export async function GET(request) {
         by.set(k, o)
         repAll += r.price_total || 0; if (online) repOn += r.price_total || 0
       }
-      const so = await rpc(sid, 'sale.order', 'read_group', [[['date_order', '>=', lo], ['date_order', '<=', hi], ['state', 'in', ['sale', 'done']]], ['amount_total:sum'], ['state']], { lazy: false })
-      const po = await rpc(sid, 'pos.order', 'read_group', [[['date_order', '>=', lo], ['date_order', '<=', hi], ['state', 'in', ['paid', 'done', 'invoiced']]], ['amount_total:sum'], ['state']], { lazy: false })
+      const so = (await rpc(sid, 'sale.order', 'read_group', [[['date_order', '>=', lo], ['date_order', '<=', hi]], ['amount_total:sum'], ['state']], { lazy: false })).filter((x) => ['sale', 'done'].includes(x.state))
+      const po = (await rpc(sid, 'pos.order', 'read_group', [[['date_order', '>=', lo], ['date_order', '<=', hi]], ['amount_total:sum'], ['state']], { lazy: false })).filter((x) => ['paid', 'done', 'invoiced'].includes(x.state))
       const onT = so.reduce((a, x) => a + (x.amount_total || 0), 0), stT = po.reduce((a, x) => a + (x.amount_total || 0), 0)
       const rows = [...by.values()]
       const diffOn = onT - repOn, diffAll = onT + stT - repAll
