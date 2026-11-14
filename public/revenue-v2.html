@@ -1172,7 +1172,8 @@ const fmtDayY = (iso) => `${fmtDay(iso)} ${iso.slice(2, 4)}`;
 const cairoToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
 const TODAY = cairoToday();
 const proxy = (u) => (u ? `/api/img-proxy?url=${encodeURIComponent(u)}` : false);
-const normName = (n) => n.trim().toLowerCase();
+// Odoo prefixes some product names with an internal code, e.g. "[US6SO-16RGESS] Black & White Neck Socks"; Metabase does not.
+const normName = (n) => n.replace(/^\s*\[[^\]]*\]\s*/, '').trim().toLowerCase();
 let tagSets = null;
 
 async function getJSON(url) {
